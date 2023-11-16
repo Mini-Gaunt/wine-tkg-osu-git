@@ -16,7 +16,7 @@ Wine-tkg is a build-system aiming at easier custom wine builds creation.
 
  * Clone the repo (allows you to use `git pull` to get updates) :
 ```
-git clone https://github.com/Frogging-Family/wine-tkg-git.git
+git clone https://github.com/Mini-Gaunt/wine-tkg-osu-git.git
 ```
 
 ## Configuration/customization :
@@ -28,9 +28,9 @@ You can also create an external configuration file that will contain all setting
 
 ## Building :
 
- * We need to get into the wine-tkg-git dir first:
+ * We need to get into the wine-tkg-osu-git dir first:
 ```
-cd wine-tkg-git
+cd wine-tkg-osu-git
 ```
 
 ### For Arch (and other pacman/makepkg distros) :
