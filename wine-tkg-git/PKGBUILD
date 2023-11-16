@@ -367,24 +367,24 @@ prepare() {
           _preloader64path="$_DEFAULT_EXTERNAL_PATH/$pkgname-$_realwineversion/bin/wine64-preloader"
         fi
       else
-        _serverpath="/opt/bin/wineserver"
-        _preloaderpath="/opt/bin/wine-preloader"
-        _preloader64path="/opt/bin/wine64-preloader"
+        _serverpath="/usr/bin/wineserver"
+        _preloaderpath="/usr/bin/wine-preloader"
+        _preloader64path="/usr/bin/wine64-preloader"
       fi
       cp "$_where"/wine.install "$_where"/wine-tkg.install
       sed -i "s|#echo \"Setting wineserver and/or wine-preloader capabilities\"|echo \"Setting wineserver and/or wine-preloader capabilities\"|g" "$_where"/wine-tkg.install
       if [ "$_allow_server_rt_prio" = "true" ] && [ "$_allow_wine_net_raw" != "true" ]; then
-        sed -i "s|#setcap cap_net_raw+eip /opt/bin/wineserver 2>/dev/null|setcap cap_sys_nice+ep $_serverpath 2>/dev/null|g" "$_where"/wine-tkg.install
+        sed -i "s|#setcap cap_net_raw+eip /usr/bin/wineserver 2>/dev/null|setcap cap_sys_nice+ep $_serverpath 2>/dev/null|g" "$_where"/wine-tkg.install
       fi
       if [ "$_allow_wine_net_raw" = "true" ] && [ "$_allow_server_rt_prio" != "true" ]; then
-        sed -i "s|#setcap cap_net_raw+eip /opt/bin/wineserver 2>/dev/null|setcap cap_net_raw+eip $_serverpath 2>/dev/null|g" "$_where"/wine-tkg.install
+        sed -i "s|#setcap cap_net_raw+eip /usr/bin/wineserver 2>/dev/null|setcap cap_net_raw+eip $_serverpath 2>/dev/null|g" "$_where"/wine-tkg.install
       fi
       if [ "$_allow_wine_net_raw" = "true" ] && [ "$_allow_server_rt_prio" = "true" ]; then
-        sed -i "s|#setcap cap_net_raw+eip /opt/bin/wineserver 2>/dev/null|setcap cap_sys_nice,cap_net_raw+eip $_serverpath 2>/dev/null|g" "$_where"/wine-tkg.install
+        sed -i "s|#setcap cap_net_raw+eip /usr/bin/wineserver 2>/dev/null|setcap cap_sys_nice,cap_net_raw+eip $_serverpath 2>/dev/null|g" "$_where"/wine-tkg.install
       fi
       if [ "$_allow_wine_net_raw" = "true" ]; then
-        sed -i "s|#setcap cap_net_raw+eip /opt/bin/wine-preloader 2>/dev/null|setcap cap_net_raw+eip $_preloaderpath 2>/dev/null|g" "$_where"/wine-tkg.install
-        sed -i "s|#setcap cap_net_raw+eip /opt/bin/wine64-preloader 2>/dev/null|setcap cap_net_raw+eip $_preloader64path 2>/dev/null|g" "$_where"/wine-tkg.install
+        sed -i "s|#setcap cap_net_raw+eip /usr/bin/wine-preloader 2>/dev/null|setcap cap_net_raw+eip $_preloaderpath 2>/dev/null|g" "$_where"/wine-tkg.install
+        sed -i "s|#setcap cap_net_raw+eip /usr/bin/wine64-preloader 2>/dev/null|setcap cap_net_raw+eip $_preloader64path 2>/dev/null|g" "$_where"/wine-tkg.install
       fi
     fi
 }
@@ -424,9 +424,7 @@ build() {
     _prefix="$_where"
     _configure_args+=(--without-curses)
   else
-
-
-_configure_args64+=(--libdir="$_prefix/$_lib64name")
+    _configure_args64+=(--libdir="$_prefix/$_lib64name")
     _configure_args32+=(--libdir="$_prefix/$_lib32name")
   fi
 
