@@ -1094,7 +1094,7 @@ _polish() {
 	_userpatch_ext="mylate"
 	cd "${srcdir}"/"${_winesrcdir}"
 	if [ "$_user_patches" = "true" ]; then
-	  user_patcher && _commitmsg="07-late-userpatches" _committer
+	   source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio && user_patcher && _commitmsg="07-late-userpatches" _committer
 	fi
 
 	# Get rid of temp patches

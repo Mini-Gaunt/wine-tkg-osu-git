@@ -4,9 +4,11 @@ Date:   Wed Jun 16 17:36:15 2021 +0200
 Subject: [PATCH] devenum: Register IEEE float for Direct Sound default device.
 
 --
+diff --git a/dlls/devenum/createdevenum.c b/dlls/devenum/createdevenum.c
+index 8e9cf56eb09..97855b12b81 100644
 --- a/dlls/devenum/createdevenum.c
 +++ b/dlls/devenum/createdevenum.c
-@@ -473,7 +473,7 @@
+@@ -481,7 +481,7 @@ static BOOL CALLBACK register_dsound_devices(GUID *guid, const WCHAR *desc, cons
      static const WCHAR defaultW[] = L"Default DirectSound Device";
      IPropertyBag *prop_bag = NULL;
      REGFILTERPINS2 rgpins = {0};
@@ -15,7 +17,7 @@ Subject: [PATCH] devenum: Register IEEE float for Direct Sound default device.
      REGFILTER2 rgf = {0};
      WCHAR clsid[CHARS_IN_GUID];
      VARIANT var;
-@@ -504,10 +504,12 @@
+@@ -512,10 +512,12 @@ static BOOL CALLBACK register_dsound_devices(GUID *guid, const WCHAR *desc, cons
      rgf.rgPins2 = &rgpins;
      rgpins.dwFlags = REG_PINFLAG_B_RENDERER;
      /* FIXME: native registers many more formats */
