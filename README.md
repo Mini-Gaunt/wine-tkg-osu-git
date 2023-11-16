@@ -1,3 +1,8 @@
+My personal fork of wine-tkg-git for maintaining osu patchsets and reverts.
+
+
+
+
 # Wine to rule them all !
 
 You must be logged in to GitHub in order to download Wine or Proton nightly builds.
@@ -16,21 +21,7 @@ Valve Wine | [Exp Bleeding Edge Arch Linux](https://github.com/Frogging-Family/w
 
 *! The LoL version should only be used for League of Legends !*
 
-## Proton nightly builds
-
-- wine-staging patchset applied
-- built on Arch current, making glibc 2.36 a requirement
-
-Proton | [Valve Exp Bleeding Edge](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/proton-valvexbe-arch-nopackage.yml) | [Wine Master](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/proton-arch-nopackage.yml) |
--------------|--------|--------|
-
-(drop the extracted folder in `/$HOME/.steam/root/compatibilitytools.d/` or, for Ubuntu/Debian based, the `/$HOME/.steam/compatibilitytools.d/` dir)
-
-## PLEASE DO NOT REPORT BUGS ENCOUNTERED WITH THIS AT WINEHQ OR VALVESOFTWARE, REPORT HERE INSTEAD !
-
 Wine-tkg is a build-system aiming at easier custom wine builds creation. You can now easily get the "plain wine + pba + steam fix" build you've been dreaming about!
-
-It can also make custom Proton builds with its wrapping script: https://github.com/Frogging-Family/wine-tkg-git/tree/master/proton-tkg
 
 **By default, it'll pull current wine/wine-staging git versions. You can target a specific release or commit in the .cfg if needed.**
 
@@ -42,7 +33,6 @@ An ever evolving selection of staging, experimental and/or hacky patches are als
 
 ### Generated Wine-tkg sources (staging-based):
  - Wine-tkg : https://github.com/Tk-Glitch/wine-tkg
- - Proton-tkg : https://github.com/Tk-Glitch/wine-proton-tkg
 
 Wine : https://github.com/wine-mirror/wine
 
@@ -51,8 +41,6 @@ Wine-staging : https://github.com/wine-staging/wine-staging
 Wine esync : https://github.com/zfigura/wine/tree/esync
 
 Wine fsync : https://github.com/zfigura/wine/tree/fsync
-
-Proton : https://github.com/ValveSoftware/Proton
 
 Wine-pba (Only working correctly up to 3.18 - Force disabled on newer wine bases due to regressions) : https://github.com/acomminos/wine-pba
 

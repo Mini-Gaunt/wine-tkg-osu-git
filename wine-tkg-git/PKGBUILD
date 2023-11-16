@@ -1,7 +1,7 @@
 # Created by: Tk-Glitch <ti3nou at gmail dot com>
 
-pkgname=wine-tkg
-pkgver=0
+pkgname=wine-osu
+pkgver=8.20.r0.gf32f8c62
 
 # workaround for pkgrel overwritten on regen
 pkgrel=1
@@ -218,7 +218,7 @@ if [ ! -e "$_where"/BIG_UGLY_FROGMINER ]; then
     rm -rf "$_where"/src
   fi
   find "$_where"/wine-tkg-patches -type f '(' -iname '*patch' -or -iname '*.conf' ')' -not -path "*hotfixes*" -exec cp -n {} "$_where" \; && # copy patches inside the PKGBUILD's dir to preserve makepkg sourcing and md5sum checking
-  cp "$_where"/wine-tkg-userpatches/*.my* "$_where" 2>/dev/null # copy userpatches inside the PKGBUILD's dir
+  cp "$_where"/wine-tkg-userpatches/"$_staging_version"-working-patchset/*.my* "$_where" 2>/dev/null # copy userpatches inside the PKGBUILD's dir
 fi
 
 # Handle unbranched bleeding version
@@ -231,27 +231,28 @@ source=("$_winesrcdir"::"${_winesrctarget}${_plain_commit}"
 		# misc
 		'30-win32-aliases.conf' # 32-bit font antialiasing
 		'wine-binfmt.conf' # Enables launching windows executables directly
+		'audio-revert.tar'
 )
 
 md5sums=('SKIP'
          'SKIP'
          '1ff4e467f59409272088d92173a0f801'
          'cff441678d798466a13a0d03b01e23d7'
+	 'SKIP'
 )
+
+noextract=(audio-revert.tar)
 
 if [ "$_EXTERNAL_INSTALL" = "true" ]; then
   provides=(
-    "$pkgname=$pkgver"
+    "$pkgname"
   )
   conflicts=("$pkgname")
 else
   provides=(
-    "wine=$pkgver"
-    "wine-wow64=$pkgver"
-    "wine-staging=$pkgver"
-    "wine-esync=$pkgver"
+    "$pkgname"
   )
-  conflicts=('wine' 'wine-wow64' 'wine-staging' 'wine-esync')
+  conflicts=('wine' 'wine-wow64' 'wine-staging' 'wine-esync' 'wine-osu')
   if [[ "$pkgname" == *-git ]]; then
     replaces=("${pkgname/%-git/-faudio-git}")
   fi
@@ -265,7 +266,7 @@ if [ -n "$_localbuild" ]; then
     if [ "$_PKGNAME_OVERRIDE" = "none" ]; then
       pkgname="${pkgname}"
     else
-      pkgname="${pkgname}-${_PKGNAME_OVERRIDE}"
+      pkgname="${pkgname}"
     fi
     if msg2; then # Arch chroot workaround for even more looping fun
       msg2 "Overriding default pkgname. New pkgname: ${pkgname}"
