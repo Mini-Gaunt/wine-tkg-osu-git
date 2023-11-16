@@ -1,7 +1,7 @@
 # Created by: Tk-Glitch <ti3nou at gmail dot com>
 
 pkgname=wine-osu
-pkgver=8.20.r0.gf32f8c62
+pkgver=0
 
 # workaround for pkgrel overwritten on regen
 pkgrel=1
