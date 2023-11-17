@@ -1,0 +1,137 @@
+From 4ede93ff8dd394f7a3f3e4edc28e5be0f905bff3 Mon Sep 17 00:00:00 2001
+From: Torge Matthies <openglfreak@googlemail.com>
+Date: Mon, 25 Apr 2022 05:24:26 +0200
+Subject: [PATCH 11/16] Revert "user32: Set SEND_HWMSG_RAWINPUT flags only when
+ RAWINPUT is set."
+
+This reverts staging patch patches/user32-rawinput-mouse/0006-user32-Set-SEND_HWMSG_RAWINPUT-flags-only-when-RAWIN.patch
+---
+ dlls/win32u/input.c             |  3 +--
+ dlls/win32u/message.c           |  4 ++--
+ dlls/wineandroid.drv/keyboard.c |  3 +--
+ dlls/wineandroid.drv/window.c   |  5 ++---
+ dlls/winemac.drv/ime.c          |  6 ++----
+ dlls/winemac.drv/keyboard.c     |  3 +--
+ dlls/winemac.drv/mouse.c        |  3 +--
+ dlls/winex11.drv/keyboard.c     |  3 +--
+ dlls/winex11.drv/mouse.c        | 10 ++++------
+ 9 files changed, 15 insertions(+), 25 deletions(-)
+
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 11111111111..11111111111 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -654,7 +654,6 @@ UINT WINAPI NtUserSendInput( UINT count, INPUT *inputs, int size )
+ {
+     UINT i;
+     NTSTATUS status = STATUS_SUCCESS;
+-    RAWINPUT rawinput;
+ 
+     if (size != sizeof(INPUT))
+     {
+@@ -684,7 +683,7 @@ UINT WINAPI NtUserSendInput( UINT count, INPUT *inputs, int size )
+             update_mouse_coords( &input );
+             /* fallthrough */
+         case INPUT_KEYBOARD:
+-            status = send_hardware_message( 0, &input, &rawinput, SEND_HWMSG_INJECTED );
++            status = send_hardware_message( 0, &input, NULL, SEND_HWMSG_INJECTED );
+             break;
+         case INPUT_HARDWARE:
+             RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 11111111111..11111111111 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2710,7 +2710,7 @@ NTSTATUS send_hardware_message( HWND hwnd, const INPUT *input, const RAWINPUT *r
+             req->input.mouse.flags = input->mi.dwFlags;
+             req->input.mouse.time  = input->mi.time;
+             req->input.mouse.info  = input->mi.dwExtraInfo;
+-            if (rawinput) req->flags |= SEND_HWMSG_RAWINPUT;
++            req->flags |= SEND_HWMSG_RAWINPUT;
+             affects_key_state = !!(input->mi.dwFlags & (MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP |
+                                                         MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_RIGHTUP |
+                                                         MOUSEEVENTF_MIDDLEDOWN | MOUSEEVENTF_MIDDLEUP |
+@@ -2722,7 +2722,7 @@ NTSTATUS send_hardware_message( HWND hwnd, const INPUT *input, const RAWINPUT *r
+             req->input.kbd.flags = input->ki.dwFlags;
+             req->input.kbd.time  = input->ki.time;
+             req->input.kbd.info  = input->ki.dwExtraInfo;
+-            if (rawinput) req->flags |= SEND_HWMSG_RAWINPUT;
++            req->flags |= SEND_HWMSG_RAWINPUT;
+             affects_key_state = TRUE;
+             break;
+         case INPUT_HARDWARE:
+diff --git a/dlls/wineandroid.drv/keyboard.c b/dlls/wineandroid.drv/keyboard.c
+index 11111111111..11111111111 100644
+--- a/dlls/wineandroid.drv/keyboard.c
++++ b/dlls/wineandroid.drv/keyboard.c
+@@ -674,7 +674,6 @@ static BOOL get_async_key_state( BYTE state[256] )
+ 
+ static void send_keyboard_input( HWND hwnd, WORD vkey, WORD scan, DWORD flags )
+ {
+-    RAWINPUT rawinput;
+     INPUT input;
+ 
+     input.type             = INPUT_KEYBOARD;
+@@ -684,7 +683,7 @@ static void send_keyboard_input( HWND hwnd, WORD vkey, WORD scan, DWORD flags )
+     input.u.ki.time        = 0;
+     input.u.ki.dwExtraInfo = 0;
+ 
+-    __wine_send_input( hwnd, &input, &rawinput );
++    __wine_send_input( hwnd, &input, NULL );
+ }
+ 
+ /***********************************************************************
+diff --git a/dlls/wineandroid.drv/window.c b/dlls/wineandroid.drv/window.c
+index 11111111111..11111111111 100644
+--- a/dlls/wineandroid.drv/window.c
++++ b/dlls/wineandroid.drv/window.c
+@@ -424,7 +424,6 @@ static int process_events( DWORD mask )
+     DPI_AWARENESS_CONTEXT context;
+     struct java_event *event, *next, *previous;
+     unsigned int count = 0;
+-    RAWINPUT rawinput;
+ 
+     assert( GetCurrentThreadId() == desktop_tid );
+ 
+@@ -518,7 +517,7 @@ static int process_events( DWORD mask )
+                     }
+                     SERVER_END_REQ;
+                 }
+-                __wine_send_input( capture ? capture : event->data.motion.hwnd, &event->data.motion.input, &rawinput );
++                __wine_send_input( capture ? capture : event->data.motion.hwnd, &event->data.motion.input, NULL );
+             }
+             break;
+ 
+@@ -532,7 +531,7 @@ static int process_events( DWORD mask )
+                       event->data.kbd.input.ki.wVk, event->data.kbd.input.ki.wVk,
+                       event->data.kbd.input.ki.wScan );
+             update_keyboard_lock_state( event->data.kbd.input.ki.wVk, event->data.kbd.lock_state );
+-            __wine_send_input( 0, &event->data.kbd.input, &rawinput );
++            __wine_send_input( 0, &event->data.kbd.input, NULL );
+             break;
+ 
+         default:
+diff --git a/dlls/winex11.drv/keyboard.c b/dlls/winex11.drv/keyboard.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/keyboard.c
++++ b/dlls/winex11.drv/keyboard.c
+@@ -1203,7 +1203,6 @@ static WORD EVENT_event_to_vkey( XIC xic, XKeyEvent *e)
+  */
+ static void X11DRV_send_keyboard_input( HWND hwnd, WORD vkey, WORD scan, UINT flags, UINT time )
+ {
+-    RAWINPUT rawinput;
+     INPUT input;
+ 
+     TRACE_(key)( "hwnd %p vkey=%04x scan=%04x flags=%04x\n", hwnd, vkey, scan, flags );
+@@ -1215,7 +1214,7 @@ static void X11DRV_send_keyboard_input( HWND hwnd, WORD vkey, WORD scan, UINT fl
+     input.u.ki.time        = time;
+     input.u.ki.dwExtraInfo = 0;
+ 
+-    __wine_send_input( hwnd, &input, &rawinput );
++    __wine_send_input( hwnd, &input, NULL );
+ }
+ 
+ 
+-- 
+2.40.0
+
