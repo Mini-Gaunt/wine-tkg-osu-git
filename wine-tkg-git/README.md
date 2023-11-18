@@ -2,7 +2,7 @@
 
 ## PLEASE DO NOT REPORT BUGS ENCOUNTERED WITH THIS AT WINEHQ OR VALVESOFTWARE, REPORT HERE INSTEAD !
 
-Wine-tkg is a build-system aiming at easier custom wine builds creation.
+Wine-tkg-osu is a build-system aiming at easier custom wine-osu build creation.
 
 
 # Quick how-to :
@@ -21,9 +21,9 @@ git clone https://github.com/Mini-Gaunt/wine-tkg-osu-git.git
 
 ## Configuration/customization :
 
-If you want to customize the patches and features of your builds, you can find basic settings in [customization.cfg](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/customization.cfg) and advanced settings in [wine-tkg-profiles/advanced-customization.cfg](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/advanced-customization.cfg).
+If you want to customize the patches and features of your builds, you can find all the settings in [customization-osu.cfg]
 
-You can also create an external configuration file that will contain all settings in a centralized way and survive repo updates. A sample file for this can be found [here](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/sample-external-config.cfg). The default path for this file is `~/.config/frogminer/wine-tkg.cfg` and can be changed in `wine-tkg-profiles/advanced-customization.cfg` with the `_EXT_CONFIG_PATH` option.
+You can also create an external configuration file that will contain all settings in a centralized way and survive repo updates.
 
 
 ## Building :

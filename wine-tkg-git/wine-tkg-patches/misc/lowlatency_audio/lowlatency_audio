@@ -9,8 +9,15 @@ echo "Starting audio revert..."
         cd "$srcdir"/wine-git/dlls/
         tar xf "$srcdir"/audio-revert.tar
 
-        echo extracted audio-revert.tar
+        echo "Extracted audio-revert.tar"
         cd -
+	
+        echo "Applying patches on top of audio revert..."
+	
+        _patchname='add-wine-unicode-again.patch'
+        _patchname='revert-mscvrt-ify-modules.patch'
+        _patchname='winepulse-v8.11-Latency-Fix(1).patch'
+	
     else
 	echo "failed"
     fi

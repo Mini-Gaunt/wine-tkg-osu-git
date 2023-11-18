@@ -172,11 +172,9 @@ msg2 '             `.-:///////:-.`'
 msg2 ''
 
   # load default configuration from files
-  if [ -e "$_where"/proton_tkg_token ]; then
-    source "$_where"/proton_tkg_token
-    source "$_proton_tkg_path"/proton-tkg.cfg
-    source "$_proton_tkg_path"/proton-tkg-profiles/advanced-customization.cfg
-  else
+  if [ -e "$_where"/customization-osu.cfg ]; then
+    source "$_where"/customization-osu.cfg
+    else
     source "$_where"/customization.cfg
     source "$_where"/wine-tkg-profiles/advanced-customization.cfg
     _EXTERNAL_INSTALL_TYPE="opt"
@@ -378,7 +376,7 @@ msg2 ''
   fi
 
   # Load legacy options only when a custom commit is set
-  if [ "$_LOCAL_PRESET" != "valve" ] && [[ "$_LOCAL_PRESET" != valve-exp* ]]; then
+  if [ "$_LOCAL_PRESET" != "valve" ] && [[ "$_LOCAL_PRESET" != valve-exp* ]] && [[ "$_LOCAL_PRESET" != "none" ]]; then
     if [ -n "$_plain_version" ] || [ -n "$_staging_version" ]; then
       if [ -e "$_proton_tkg_path"/proton_tkg_token ]; then
         msg2 "Loading legacy config file"
@@ -951,7 +949,7 @@ _prepare() {
     source "$_where"/wine-tkg-patches/proton/use_clock_monotonic/use_clock_monotonic
     source "$_where"/wine-tkg-patches/proton/esync/esync
     source "$_where"/wine-tkg-patches/misc/launch-with-dedicated-gpu-desktop-entry/launch-with-dedicated-gpu-desktop-entry
-    source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio
+#    source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio  # We comment this out in this section so we can apply the patch later before lateuserpatches gets called
     source "$_where"/wine-tkg-patches/game-specific/sims_2-fix/sims_2-fix
     source "$_where"/wine-tkg-patches/misc/pythonfix/pythonfix
     source "$_where"/wine-tkg-patches/misc/high-core-count-fix/high-core-count-fix
@@ -1090,11 +1088,12 @@ _polish() {
 	autoreconf -fiv
 
 	# wine late user patches - Applied after make_vulkan/make_requests/autoreconf
+	source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio # We call lowlatency auido which reverts to winepulse 5.13 and applys the patches on top of the revert. Late user patches trigger after these.
 	_userpatch_target="plain-wine"
 	_userpatch_ext="mylate"
 	cd "${srcdir}"/"${_winesrcdir}"
 	if [ "$_user_patches" = "true" ]; then
-	   source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio && user_patcher && _commitmsg="07-late-userpatches" _committer
+	    user_patcher && _commitmsg="07-late-userpatches" _committer
 	fi
 
 	# Get rid of temp patches

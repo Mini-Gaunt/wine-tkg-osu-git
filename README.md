@@ -5,31 +5,15 @@ My personal fork of wine-tkg-git for maintaining osu patchsets and reverts.
 
 # Wine to rule them all !
 
-You must be logged in to GitHub in order to download Wine or Proton nightly builds.
-
-## Wine nightly builds
-
-- wine-staging patchset applied
-
-Wine | [Arch Linux](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-arch.yml) | [Fedora](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-fedora.yml) | [Ubuntu](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-ubuntu.yml) | [LoL](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-lol.yml) |
--------------|--------|--------|-------|-------|
-
-Valve Wine | [Exp Bleeding Edge Arch Linux](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-valvexbe-pacman.yml) | [Exp Bleeding Edge Other distro](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-valvexbe.yml) |
--------------|--------|--------|
-
-*The Exp Bleeding Edge Other distro and LoL versions are built on Ubuntu latest, which should work fine on most distros not using years old packages*
-
-*! The LoL version should only be used for League of Legends !*
-
-Wine-tkg is a build-system aiming at easier custom wine builds creation. You can now easily get the "plain wine + pba + steam fix" build you've been dreaming about!
+Wine-tkg-osu is a build-system aiming at easier custom wine-osu build creation. You can now easily get the "plain wine-osu + pba + steam fix" build you've been dreaming about!
 
 **By default, it'll pull current wine/wine-staging git versions. You can target a specific release or commit in the .cfg if needed.**
 
-A comfortable selection of patches is available to you, with some of them being enabled by default for your convenience (see [this sample config file](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/sample-external-config.cfg) for the full list and details)
+A comfortable selection of patches is available to you, with some of them being enabled by default for your convenience. See /wine-tkg-git/wine-tkg-userpatches/README.md for details
 
 An ever evolving selection of staging, experimental and/or hacky patches are also available [in the community-patches](https://github.com/Frogging-Family/community-patches/tree/master/wine-tkg-git)
 
-**Can be built with your own patches - See [README in wine-tkg-git/wine-tkg-userpatches](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-userpatches/README.md) for instructions**
+**Can be built with your own patches too! - See [README in wine-tkg-git/wine-tkg-userpatches](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-userpatches/README.md) for instructions**
 
 ### Generated Wine-tkg sources (staging-based):
  - Wine-tkg : https://github.com/Tk-Glitch/wine-tkg
