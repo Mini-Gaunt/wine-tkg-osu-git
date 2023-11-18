@@ -14,9 +14,8 @@ echo "Starting audio revert..."
 	
         echo "Applying patches on top of audio revert..."
 	
-        _patchname='add-wine-unicode-again.patch'
-        _patchname='revert-mscvrt-ify-modules.patch'
-        _patchname='winepulse-v8.11-Latency-Fix(1).patch'
+	_patchname='revert-mscvrt-ify-modules.patch' && nonuser_patcher
+	_patchname='winepulse-v8.11-Latency-Fix(1).patch' && nonuser_patcher
 	
     else
 	echo "failed"
