@@ -14,7 +14,7 @@ echo "Starting audio revert..."
 	
         echo "Applying patches on top of audio revert..."
 	
-	_patchname='revert-mscvrt-ify-modules.patch' && nonuser_patcher
+#	_patchname='revert-mscvrt-ify-modules.patch' && nonuser_patcher
 	_patchname='winepulse-v8.11-Latency-Fix(1).patch' && nonuser_patcher
 	
     else
