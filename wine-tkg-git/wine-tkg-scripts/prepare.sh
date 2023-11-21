@@ -428,12 +428,12 @@ _pkgnaming() {
 
     # Add trailing -git for non-valve presets
     if [ -n "$_LOCAL_PRESET" ] && [[ "$_custom_wine_source" != *"ValveSoftware"* ]]; then
-      pkgname+="-git"
+      pkgname+=""
     fi
     msg2 "Overriding default pkgname. New pkgname: ${pkgname}"
   else
     if [ "$_use_staging" = "true" ]; then
-      pkgname+="-staging"
+      pkgname+=""
       msg2 "Using staging patchset"
     fi
 
@@ -451,12 +451,12 @@ _pkgnaming() {
       msg2 "Using gallium nine patchset (legacy)"
     fi
     # Add trailing -git for non-overriden pkgnames
-    pkgname+="-git"
+    pkgname+=""
   fi
 
   # External install
   if [ "$_EXTERNAL_INSTALL" = "true" ]; then
-    pkgname+="-$_EXTERNAL_INSTALL_TYPE"
+    pkgname+=""
     msg2 "Installing to $_DEFAULT_EXTERNAL_PATH/$pkgname"
   elif [ "$_EXTERNAL_INSTALL" = "proton" ]; then
     pkgname="proton_dist"
@@ -903,7 +903,7 @@ _prepare() {
     source "$_where"/wine-tkg-patches/misc/childwindow/childwindow
     source "$_where"/wine-tkg-patches/misc/0001-kernelbase-Remove-DECLSPEC_HOTPATCH-from-SetThreadSt/0001-kernelbase-Remove-DECLSPEC_HOTPATCH-from-SetThreadSt
     source "$_where"/wine-tkg-patches/misc/usvfs/usvfs
-
+    
 	# Reverts c6b6935 due to https://bugs.winehq.org/show_bug.cgi?id=47752
 	if [ "$_c6b6935_revert" = "true" ] && ! git merge-base --is-ancestor cb703739e5c138e3beffab321b84edb129156000 HEAD; then
 	  _patchname='revert-c6b6935.patch' && _patchmsg="Reverted c6b6935 to fix regression affecting performance negatively" && nonuser_patcher
@@ -949,7 +949,7 @@ _prepare() {
     source "$_where"/wine-tkg-patches/proton/use_clock_monotonic/use_clock_monotonic
     source "$_where"/wine-tkg-patches/proton/esync/esync
     source "$_where"/wine-tkg-patches/misc/launch-with-dedicated-gpu-desktop-entry/launch-with-dedicated-gpu-desktop-entry
-#    source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio  # We comment this out in this section so we can apply the patch later before lateuserpatches gets called
+    source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio
     source "$_where"/wine-tkg-patches/game-specific/sims_2-fix/sims_2-fix
     source "$_where"/wine-tkg-patches/misc/pythonfix/pythonfix
     source "$_where"/wine-tkg-patches/misc/high-core-count-fix/high-core-count-fix
@@ -1080,7 +1080,7 @@ _polish() {
 	# tools/make_makefiles destroys Valve trees - disable on those
 	if [[ "$_custom_wine_source" != *"ValveSoftware"* ]]; then
 	  git add * && true
-	  tools/make_makefiles
+#	  tools/make_makefiles
 	fi
 
 	echo -e "\nRunning make_vulkan" >> "$_where"/prepare.log && dlls/winevulkan/make_vulkan >> "$_where"/prepare.log 2>&1
@@ -1088,7 +1088,7 @@ _polish() {
 	autoreconf -fiv
 
 	# wine late user patches - Applied after make_vulkan/make_requests/autoreconf
-	source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio # We call lowlatency auido which reverts to winepulse 5.13 and applys the patches on top of the revert. Late user patches trigger after these.
+	
 	_userpatch_target="plain-wine"
 	_userpatch_ext="mylate"
 	cd "${srcdir}"/"${_winesrcdir}"
