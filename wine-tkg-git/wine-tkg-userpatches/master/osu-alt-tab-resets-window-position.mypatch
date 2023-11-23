@@ -1,0 +1,14 @@
+--- b/dlls/winex11.drv/window.c
++++ a/dlls/winex11.drv/window.c
+@@ -1414,9 +1414,10 @@ static void sync_window_position( struct x11drv_win_data *data,
+   {
+   	int old_x_offset = old_window_rect->left - old_whole_rect->left;
+        int old_y_offset = old_window_rect->top - old_whole_rect->top;
+        int new_x_offset = data->window_rect.left - data->whole_rect.left;
+        int new_y_offset = data->window_rect.top - data->whole_rect.top;
+        if (old_x_offset != new_x_offset || old_y_offset != new_y_offset)
++	   XResetOffset( old_y_offset = window_rect.top, old_x_offset = window_rect.left)
+	   XShapeOffsetShape( data->display, data->whole_window, ShapeBounding,
+                               new_x_offset - old_x_offset, new_y_offset - old_y_offset );
+    }
+ #endif
