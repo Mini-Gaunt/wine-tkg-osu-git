@@ -219,7 +219,7 @@ if [ ! -e "$_where"/BIG_UGLY_FROGMINER ]; then
   fi
   find "$_where"/wine-tkg-patches -type f '(' -iname '*patch' -or -iname '*.conf' ')' -not -path "*hotfixes*" -exec cp -n {} "$_where" \; && # copy patches inside the PKGBUILD's dir to preserve makepkg sourcing and md5sum checking
   cp "$_where"/wine-tkg-userpatches/"$_staging_version"-working-patchset/*.my* "$_where" 2>/dev/null # copy the workingpatchset inside the PKGBUILD's dir
-  cp "$_where"/wine-tkg-userpatches/*.my* "$_where" 2>/dev/null # copy userpatches inside the PKGBUILD's dir
+   "$_where"/wine-tkg-userpatches/*.my* "$_where" 2>/dev/null # copy userpatches inside the PKGBUILD's dir
 fi
 
 # Handle unbranched bleeding version
@@ -227,12 +227,14 @@ if [[ "$_LOCAL_PRESET" = valve* ]] && [ -n "$_bleeding_tag" ]; then
   _plain_commit="${_bleeding_tag}"
 fi
 
+cp "$_where"/wine-tkg-userpatches/"$_staging_version"-working-patchset/"$_staging_version"-audio-revert.tar "$_where" 2>/dev/null # copy staging version's audio revert into PKGBUILD's dir
+
 source=("$_winesrcdir"::"${_winesrctarget}${_plain_commit}"
-		"$_stgsrcdir"::"${_stgsrctarget}${_staging_commit}"
+	"$_stgsrcdir"::"${_stgsrctarget}${_staging_commit}"
 		# misc
 		'30-win32-aliases.conf' # 32-bit font antialiasing
-		'wine-binfmt.conf' # Enables launching windows executables directly
-		'audio-revert.tar'
+		'wine-binfmt.conf'
+		"$_staging_version"-audio-revert.tar
 )
 
 md5sums=('SKIP'
@@ -242,7 +244,7 @@ md5sums=('SKIP'
 	 'SKIP'
 )
 
-noextract=(audio-revert.tar)
+noextract=("$_staging_version"-audio-revert.tar)
 
 if [ "$_EXTERNAL_INSTALL" = "true" ]; then
   provides=(

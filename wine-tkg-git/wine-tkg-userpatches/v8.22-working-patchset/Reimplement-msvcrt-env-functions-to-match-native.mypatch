@@ -1,0 +1,1567 @@
+From 7593a7367ed8ab1d28efcf9afb33a36e34c6c9de Mon Sep 17 00:00:00 2001
+From: Eric Pouech <epouech@codeweavers.com>
+Date: Tue, 21 Nov 2023 10:23:54 +0100
+Subject: [PATCH 1/7] msvcrt/tests: Test passing environment in child process.
+
+Signed-off-by: Eric Pouech <epouech@codeweavers.com>
+---
+ dlls/msvcrt/tests/environ.c | 49 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/dlls/msvcrt/tests/environ.c b/dlls/msvcrt/tests/environ.c
+index f14764ea5a0..17d75733c85 100644
+--- a/dlls/msvcrt/tests/environ.c
++++ b/dlls/msvcrt/tests/environ.c
+@@ -393,12 +393,61 @@ static void test_environment_manipulation(void)
+     ok( count == env_get_entry_countA( *p_environ ), "Unexpected modification of _environ[]\n" );
+ }
+ 
++static void test_child_env(char** argv)
++{
++    STARTUPINFOA si = {sizeof(si)};
++    WCHAR *cur_env, *env, *p, *q;
++    PROCESS_INFORMATION pi;
++    char tmp[1024];
++    BOOL ret;
++    int len;
++
++    cur_env = GetEnvironmentStringsW();
++    ok( cur_env != NULL, "GetEnvironemntStrings failed\n" );
++
++    p = cur_env;
++    while (*p) p += wcslen( p ) + 1;
++    len = p - cur_env;
++    env = malloc( (len + 1024) * sizeof(*env) );
++    memcpy(env, cur_env, len * sizeof(*env) );
++    q = env + len;
++    FreeEnvironmentStringsW( cur_env );
++
++    wcscpy( q, L"__winetest_dog=bark" );
++    q += wcslen( L"__winetest_dog=bark" ) + 1;
++    wcscpy( q, L"__winetest_\u263a=\u03b2" );
++    q += wcslen( L"__winetest_\u263a=\u03b2" ) + 1;
++    *q = 0;
++
++    snprintf( tmp, sizeof(tmp), "%s %s create", argv[0], argv[1] );
++    ret = CreateProcessA( NULL, tmp, NULL, NULL, FALSE, CREATE_UNICODE_ENVIRONMENT, env, NULL, &si, &pi );
++    ok( ret, "Couldn't create child process %s\n", tmp );
++    winetest_wait_child_process( pi.hProcess );
++    CloseHandle( pi.hProcess );
++    CloseHandle( pi.hThread );
++    free( env );
++}
++
+ START_TEST(environ)
+ {
++    char **argv;
++    int argc;
++
+     init();
+ 
++    argc = winetest_get_mainargs( &argv );
++    if (argc == 3 && !strcmp( argv[2], "create" ))
++    {
++        ok( getenv( "__winetest_dog" ) && !strcmp( getenv( "__winetest_dog" ), "bark" ),
++                "Couldn't find env var\n" );
++        ok( _wgetenv( L"__winetest_\u263a" ) && !wcscmp( _wgetenv( L"__winetest_\u263a" ), L"\u03b2" ),
++                "Couldn't find unicode env var\n" );
++        return;
++    }
++
+     test__environ();
+     test__wenviron();
+     test_environment_manipulation();
++    test_child_env(argv);
+     test_system();
+ }
+-- 
+GitLab
+
+
+From d9a1e845aeb64db95922c05c734a4da60824de3b Mon Sep 17 00:00:00 2001
+From: Eric Pouech <epouech@codeweavers.com>
+Date: Tue, 21 Nov 2023 10:23:54 +0100
+Subject: [PATCH 2/7] ucrtbase/tests: Introduce environment tests.
+
+Mostly adapting msvcrt tests/environ.c.
+
+Signed-off-by: Eric Pouech <epouech@codeweavers.com>
+---
+ dlls/ucrtbase/tests/Makefile.in |   1 +
+ dlls/ucrtbase/tests/environ.c   | 350 ++++++++++++++++++++++++++++++++
+ 2 files changed, 351 insertions(+)
+ create mode 100644 dlls/ucrtbase/tests/environ.c
+
+diff --git a/dlls/ucrtbase/tests/Makefile.in b/dlls/ucrtbase/tests/Makefile.in
+index 4df5684290c..cd01a3aacb9 100644
+--- a/dlls/ucrtbase/tests/Makefile.in
++++ b/dlls/ucrtbase/tests/Makefile.in
+@@ -4,6 +4,7 @@ EXTRADEFS = -fno-builtin
+ 
+ SOURCES = \
+ 	cpp.c \
++	environ.c \
+ 	misc.c \
+ 	printf.c \
+ 	scanf.c \
+diff --git a/dlls/ucrtbase/tests/environ.c b/dlls/ucrtbase/tests/environ.c
+new file mode 100644
+index 00000000000..4d2dbadd33d
+--- /dev/null
++++ b/dlls/ucrtbase/tests/environ.c
+@@ -0,0 +1,350 @@
++/*
++ * Unit tests for C library environment routines
++ *
++ * Copyright 2004 Mike Hearn <mh@codeweavers.com>
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#include "wine/test.h"
++#include <errno.h>
++#include <stdlib.h>
++#include <process.h>
++#include <winnls.h>
++
++#define DEFINE_EXPECT(func) \
++    static BOOL expect_ ## func = FALSE, called_ ## func = FALSE
++
++#define SET_EXPECT(func) \
++    expect_ ## func = TRUE
++
++#define CHECK_EXPECT2(func) \
++    do { \
++        ok(expect_ ##func, "unexpected call " #func "\n"); \
++        called_ ## func = TRUE; \
++    }while(0)
++
++#define CHECK_EXPECT(func) \
++    do { \
++        CHECK_EXPECT2(func); \
++        expect_ ## func = FALSE; \
++    }while(0)
++
++#define CHECK_CALLED(func) \
++    do { \
++        ok(called_ ## func, "expected " #func "\n"); \
++        expect_ ## func = called_ ## func = FALSE; \
++    }while(0)
++
++DEFINE_EXPECT(invalid_parameter_handler);
++
++static const char *a_very_long_env_string =
++ "LIBRARY_PATH="
++ "C:/Program Files/GLBasic/Compiler/platform/Win32/Bin/../lib/gcc/mingw32/3.4.2/;"
++ "C:/Program Files/GLBasic/Compiler/platform/Win32/Bin/../lib/gcc/;"
++ "/mingw/lib/gcc/mingw32/3.4.2/;"
++ "/usr/lib/gcc/mingw32/3.4.2/;"
++ "C:/Program Files/GLBasic/Compiler/platform/Win32/Bin/../lib/gcc/mingw32/3.4.2/../../../../mingw32/lib/mingw32/3.4.2/;"
++ "C:/Program Files/GLBasic/Compiler/platform/Win32/Bin/../lib/gcc/mingw32/3.4.2/../../../../mingw32/lib/;"
++ "/mingw/mingw32/lib/mingw32/3.4.2/;"
++ "/mingw/mingw32/lib/;"
++ "/mingw/lib/mingw32/3.4.2/;"
++ "/mingw/lib/;"
++ "C:/Program Files/GLBasic/Compiler/platform/Win32/Bin/../lib/gcc/mingw32/3.4.2/../../../mingw32/3.4.2/;"
++ "C:/Program Files/GLBasic/Compiler/platform/Win32/Bin/../lib/gcc/mingw32/3.4.2/../../../;"
++ "/mingw/lib/mingw32/3.4.2/;"
++ "/mingw/lib/;"
++ "/lib/mingw32/3.4.2/;"
++ "/lib/;"
++ "/usr/lib/mingw32/3.4.2/;"
++ "/usr/lib/";
++
++static char ***(__cdecl *p__p__environ)(void);
++static WCHAR ***(__cdecl *p__p__wenviron)(void);
++static char** (__cdecl *p_get_initial_narrow_environment)(void);
++static wchar_t** (__cdecl *p_get_initial_wide_environment)(void);
++static errno_t (__cdecl *p_putenv_s)(const char*, const char*);
++static errno_t (__cdecl *p_wputenv_s)(const wchar_t*, const wchar_t*);
++static errno_t (__cdecl *p_getenv_s)(size_t*, char*, size_t, const char*);
++
++static char ***p_environ;
++static WCHAR ***p_wenviron;
++
++static void __cdecl test_invalid_parameter_handler(const wchar_t *expression,
++                                                   const wchar_t *function, const wchar_t *file,
++                                                   unsigned line, uintptr_t arg)
++{
++    CHECK_EXPECT(invalid_parameter_handler);
++    ok(expression == NULL, "expression is not NULL\n");
++    ok(function == NULL, "function is not NULL\n");
++    ok(file == NULL, "file is not NULL\n");
++    ok(line == 0, "line = %u\n", line);
++    ok(arg == 0, "arg = %Ix\n", arg);
++}
++
++static BOOL init(void)
++{
++    HMODULE hmod = GetModuleHandleA( "ucrtbase.dll" );
++
++    p__p__environ = (void *)GetProcAddress( hmod, "__p__environ" );
++    p__p__wenviron = (void *)GetProcAddress( hmod, "__p__wenviron" );
++    p_get_initial_narrow_environment = (void *)GetProcAddress( hmod, "_get_initial_narrow_environment" );
++    p_get_initial_wide_environment = (void *)GetProcAddress( hmod, "_get_initial_wide_environment" );
++    p_putenv_s = (void *)GetProcAddress( hmod, "_putenv_s" );
++    p_wputenv_s = (void *)GetProcAddress( hmod, "_wputenv_s" );
++    p_getenv_s = (void *)GetProcAddress( hmod, "getenv_s" );
++
++    ok(p__p__environ != NULL, "Unexecped NULL pointer to environ\n" );
++    ok(p__p__wenviron != NULL, "Unexecped NULL pointer to environ\n" );
++    if (!p__p__environ || !p__p__wenviron)
++    {
++        skip( "NULL pointers for environment\n" );
++        return FALSE;
++    }
++    p_environ = p__p__environ();
++    p_wenviron = p__p__wenviron();
++    return TRUE;
++}
++
++static unsigned env_get_entry_countA( char **env )
++{
++    unsigned count;
++
++    if (!env) return 0;
++    for (count = 0; env[count] != NULL; count++) {}
++    return count;
++}
++
++static void test_initial_environ( void )
++{
++    ok( p__p__environ() != NULL, "Unexpected NULL _environ[]\n" );
++    ok( *p__p__environ() != NULL, "Unexpected empty _environ[]\n" );
++    ok( p_get_initial_narrow_environment() != NULL, "Unexpected empty narrow initial environment\n" );
++    todo_wine
++    ok( p_get_initial_narrow_environment() == *p__p__environ(), "Expecting _environ[] to match initial narrow environment\n" );
++
++    ok( p__p__wenviron() != NULL, "Unexpected NULL _wenviron[]\n" );
++    ok( *p__p__wenviron() == NULL, "Unexpected non empty _wenviron[]\n" );
++    ok( p_get_initial_wide_environment() != NULL, "Unexpected empty wide initial environment\n" );
++    todo_wine
++    ok( p_get_initial_wide_environment() == *p__p__wenviron(), "Expecting _wenviron[] to match initial wide environment\n" );
++}
++
++static void test_environment_manipulation(void)
++{
++    char buf[256];
++    errno_t ret;
++    size_t len;
++    unsigned count;
++    char* first;
++    char* second;
++
++    ok( _putenv( "cat=" ) == 0, "_putenv failed on deletion of nonexistent environment variable\n" );
++    ok( _putenv( "cat=dog" ) == 0, "failed setting cat=dog\n" );
++    ok( strcmp( getenv( "cat" ), "dog" ) == 0, "getenv did not return 'dog'\n" );
++    if (p_getenv_s)
++    {
++        ret = p_getenv_s( &len, buf, sizeof(buf), "cat" );
++        ok( !ret, "getenv_s returned %d\n", ret );
++        ok( len == 4, "getenv_s returned length is %Id\n", len);
++        ok( !strcmp(buf, "dog"), "getenv_s did not return 'dog'\n" );
++    }
++    ok( _putenv("cat=") == 0, "failed deleting cat\n" );
++
++    ok( _putenv("=") == -1, "should not accept '=' as input\n" );
++    ok( _putenv("=dog") == -1, "should not accept '=dog' as input\n" );
++    ok( _putenv(a_very_long_env_string) == 0, "_putenv failed for long environment string\n" );
++
++    ok( getenv("nonexistent") == NULL, "getenv should fail with nonexistent var name\n" );
++
++    if (p_putenv_s)
++    {
++        SET_EXPECT(invalid_parameter_handler);
++        ret = p_putenv_s( NULL, "dog" );
++        CHECK_CALLED(invalid_parameter_handler);
++        ok( ret == EINVAL, "_putenv_s returned %d\n", ret );
++        SET_EXPECT(invalid_parameter_handler);
++        ret = p_putenv_s( "cat", NULL );
++        CHECK_CALLED(invalid_parameter_handler);
++        ok( ret == EINVAL, "_putenv_s returned %d\n", ret );
++        SET_EXPECT(invalid_parameter_handler);
++        ret = p_putenv_s( "a=b", NULL );
++        CHECK_CALLED(invalid_parameter_handler);
++        ok( ret == EINVAL, "_putenv_s returned %d\n", ret );
++        ret = p_putenv_s( "cat", "a=b" );
++        ok( !ret, "_putenv_s returned %d\n", ret );
++        ret = p_putenv_s( "cat", "" );
++        ok( !ret, "_putenv_s returned %d\n", ret );
++    }
++
++    if (p_wputenv_s)
++    {
++        SET_EXPECT(invalid_parameter_handler);
++        ret = p_wputenv_s( NULL, L"dog" );
++        CHECK_CALLED(invalid_parameter_handler);
++        ok( ret == EINVAL, "_wputenv_s returned %d\n", ret );
++        SET_EXPECT(invalid_parameter_handler);
++        ret = p_wputenv_s( L"cat", NULL );
++        CHECK_CALLED(invalid_parameter_handler);
++        ok( ret == EINVAL, "_wputenv_s returned %d\n", ret );
++        SET_EXPECT(invalid_parameter_handler);
++        ret = p_wputenv_s( L"a=b", NULL );
++        CHECK_CALLED(invalid_parameter_handler);
++        ok( ret == EINVAL, "_wputenv_s returned %d\n", ret );
++        ret = p_wputenv_s( L"cat", L"a=b" );
++        ok( !ret, "_wputenv_s returned %d\n", ret );
++        ret = p_wputenv_s( L"cat", L"" );
++        ok( !ret, "_wputenv_s returned %d\n", ret );
++    }
++
++    if (p_getenv_s)
++    {
++        buf[0] = 'x';
++        len = 1;
++        errno = 0xdeadbeef;
++        ret = p_getenv_s( &len, buf, sizeof(buf), "nonexistent" );
++        ok( !ret, "_getenv_s returned %d\n", ret );
++        ok( !len, "getenv_s returned length is %Id\n", len );
++        ok( !buf[0], "buf = %s\n", buf );
++        ok( errno == 0xdeadbeef, "errno = %d\n", errno );
++
++        buf[0] = 'x';
++        len = 1;
++        errno = 0xdeadbeef;
++        ret = p_getenv_s( &len, buf, sizeof(buf), NULL );
++        ok( !ret, "_getenv_s returned %d\n", ret );
++        ok( !len, "getenv_s returned length is %Id\n", len );
++        ok( !buf[0], "buf = %s\n", buf );
++        ok( errno == 0xdeadbeef, "errno = %d\n", errno );
++    }
++
++    /* test stability of _environ[] pointers */
++    ok( _putenv( "__winetest_cat=" ) == 0, "Couldn't reset env var\n" );
++    ok( _putenv( "__winetest_dog=" ) == 0, "Couldn't reset env var\n" );
++    count = env_get_entry_countA( *p_environ );
++    ok( _putenv( "__winetest_cat=mew") == 0, "Couldn't set env var\n" );
++    ok( !strcmp( (*p_environ)[count], "__winetest_cat=mew"), "Unexpected env var value\n" );
++    first = (*p_environ)[count];
++    ok( getenv("__winetest_cat") == strchr( (*p_environ)[count], '=') + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
++    ok( _putenv( "__winetest_dog=bark" ) == 0, "Couldn't set env var\n" );
++    ok( !strcmp( (*p_environ)[count + 1], "__winetest_dog=bark" ), "Unexpected env var value\n" );
++    ok( getenv( "__winetest_dog" ) == strchr( (*p_environ)[count + 1], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
++    todo_wine
++    ok( first == (*p_environ)[count], "Expected stability of _environ[count] pointer\n" );
++    second = (*p_environ)[count + 1];
++    ok( count + 2 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
++
++    ok( _putenv( "__winetest_cat=purr" ) == 0, "Couldn't set env var\n" );
++    ok( !strcmp( (*p_environ)[count], "__winetest_cat=purr" ), "Unexpected env var value\n" );
++    ok( getenv( "__winetest_cat" ) == strchr( (*p_environ)[count], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
++    todo_wine
++    ok( second == (*p_environ)[count + 1], "Expected stability of _environ[count] pointer\n" );
++    ok( !strcmp( (*p_environ)[count + 1], "__winetest_dog=bark" ), "Couldn't get env var value\n" );
++    ok( getenv( "__winetest_dog" ) == strchr( (*p_environ)[count + 1], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
++    ok( count + 2 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
++    ok( _putenv( "__winetest_cat=" ) == 0, "Couldn't reset env vat\n" );
++    todo_wine
++    ok( second == (*p_environ)[count], "Expected _environ[count] to be second\n" );
++    ok( !strcmp( (*p_environ)[count], "__winetest_dog=bark" ), "Unexpected env var value\n" );
++    ok( count + 1 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
++    ok( _putenv( "__winetest_dog=" ) == 0, "Couldn't reset env var\n" );
++    ok( count == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
++
++    /* in putenv, only changed variable is updated (no other reload of kernel info is done) */
++    ret = SetEnvironmentVariableA( "__winetest_cat", "meow" );
++    ok( ret, "SetEnvironmentVariableA failed: %lu\n", GetLastError() );
++    ok( _putenv( "__winetest_dog=bark" ) == 0, "Couldn't set env var\n" );
++    todo_wine
++    ok( getenv( "__winetest_cat" ) == NULL, "msvcrt env cache shouldn't have been updated\n" );
++    ok( _putenv( "__winetest_cat=" ) == 0, "Couldn't reset env var\n" );
++    ok( _putenv( "__winetest_dog=" ) == 0, "Couldn't reset env var\n" );
++
++    /* test setting unicode bits */
++    count = env_get_entry_countA( *p_environ );
++    ret = WideCharToMultiByte( CP_ACP, 0, L"\u263a", -1, buf, ARRAY_SIZE(buf), 0, 0 );
++    ok( ret, "WideCharToMultiByte failed: %lu\n", GetLastError() );
++    ok( _wputenv( L"__winetest_cat=\u263a" ) == 0, "Couldn't set env var\n" );
++    ok( _wgetenv( L"__winetest_cat" ) && !wcscmp( _wgetenv( L"__winetest_cat" ), L"\u263a" ), "Couldn't retrieve env var\n" );
++    ok( getenv( "__winetest_cat" ) && !strcmp( getenv( "__winetest_cat" ), buf ), "Couldn't retrieve env var\n" );
++    ok( _wputenv( L"__winetest_cat=" ) == 0, "Couldn't reset env var\n" );
++
++    ret = WideCharToMultiByte( CP_ACP, 0, L"__winetest_\u263a", -1, buf, ARRAY_SIZE(buf), 0, 0 );
++    ok( ret, "WideCharToMultiByte failed: %lu\n", GetLastError() );
++    ok( _wputenv( L"__winetest_\u263a=bark" ) == 0, "Couldn't set env var\n" );
++    ok( _wgetenv( L"__winetest_\u263a" ) && !wcscmp( _wgetenv( L"__winetest_\u263a" ), L"bark"), "Couldn't retrieve env var\n" );
++    ok( getenv( buf ) && !strcmp( getenv( buf ), "bark"), "Couldn't retrieve env var %s\n", wine_dbgstr_a(buf) );
++    ok( _wputenv( L"__winetest_\u263a=" ) == 0, "Couldn't reset env var\n" );
++    ok( count == env_get_entry_countA( *p_environ ), "Unexpected modification of _environ[]\n" );
++}
++
++static void test_child_env(char** argv)
++{
++    STARTUPINFOA si = {sizeof(si)};
++    WCHAR *cur_env, *env, *p, *q;
++    PROCESS_INFORMATION pi;
++    char tmp[1024];
++    BOOL ret;
++    int len;
++
++    cur_env = GetEnvironmentStringsW();
++    ok( cur_env != NULL, "GetEnvironemntStrings failed\n" );
++
++    p = cur_env;
++    while (*p) p += wcslen( p ) + 1;
++    len = p - cur_env;
++    env = malloc( (len + 1024) * sizeof(*env) );
++    memcpy(env, cur_env, len * sizeof(*env) );
++    q = env + len;
++    FreeEnvironmentStringsW( cur_env );
++
++    wcscpy( q, L"__winetest_dog=bark" );
++    q += wcslen( L"__winetest_dog=bark" ) + 1;
++    wcscpy( q, L"__winetest_\u263a=\u03b2" );
++    q += wcslen( L"__winetest_\u263a=\u03b2" ) + 1;
++    *q = 0;
++
++    snprintf( tmp, sizeof(tmp), "%s %s create", argv[0], argv[1] );
++    ret = CreateProcessA( NULL, tmp, NULL, NULL, FALSE, CREATE_UNICODE_ENVIRONMENT, env, NULL, &si, &pi );
++    ok( ret, "Couldn't create child process %s\n", tmp );
++    winetest_wait_child_process( pi.hProcess );
++    CloseHandle( pi.hProcess );
++    CloseHandle( pi.hThread );
++    free( env );
++}
++
++START_TEST(environ)
++{
++    char **argv;
++    int argc;
++
++    if (!init()) return;
++
++    ok( _set_invalid_parameter_handler( test_invalid_parameter_handler ) == NULL,
++       "Invalid parameter handler was already set\n" );
++
++    argc = winetest_get_mainargs( &argv );
++    if (argc == 3 && !strcmp( argv[2], "create" ))
++    {
++        ok( getenv( "__winetest_dog" ) && !strcmp( getenv( "__winetest_dog" ), "bark" ),
++                "Couldn't find env var\n" );
++        ok( _wgetenv( L"__winetest_\u263a" ) && !wcscmp( _wgetenv( L"__winetest_\u263a" ), L"\u03b2" ),
++                "Couldn't find unicode env var\n" );
++        return;
++    }
++
++    test_initial_environ();
++    test_environment_manipulation();
++    test_child_env(argv);
++}
+-- 
+GitLab
+
+
+From 3030bb63b2aa4ece8593c7fb1d9062c773292d23 Mon Sep 17 00:00:00 2001
+From: Piotr Caban <piotr@codeweavers.com>
+Date: Tue, 21 Nov 2023 10:23:54 +0100
+Subject: [PATCH 3/7] msvcrt: Factor out env_get_index helper.
+
+---
+ dlls/msvcrt/environ.c | 31 +++++++++++++++++--------------
+ 1 file changed, 17 insertions(+), 14 deletions(-)
+
+diff --git a/dlls/msvcrt/environ.c b/dlls/msvcrt/environ.c
+index 2c2a3353582..f0c3705a030 100644
+--- a/dlls/msvcrt/environ.c
++++ b/dlls/msvcrt/environ.c
+@@ -25,25 +25,28 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
+ 
+-static char * getenv_helper(const char *name)
++static int env_get_index(const char *name)
+ {
+-    char **env;
+-    size_t len;
++    int i, len;
+ 
+-    if (!name) return NULL;
+     len = strlen(name);
+-
+-    for (env = MSVCRT__environ; *env; env++)
++    for (i = 0; MSVCRT__environ[i]; i++)
+     {
+-        char *str = *env;
+-        char *pos = strchr(str,'=');
+-        if (pos && ((pos - str) == len) && !_strnicmp(str, name, len))
+-        {
+-            TRACE("(%s): got %s\n", debugstr_a(name), debugstr_a(pos + 1));
+-            return pos + 1;
+-        }
++        if (!strncmp(name, MSVCRT__environ[i], len) && MSVCRT__environ[i][len] == '=')
++            return i;
+     }
+-    return NULL;
++    return i;
++}
++
++static char * getenv_helper(const char *name)
++{
++    int idx;
++
++    if (!name) return NULL;
++
++    idx = env_get_index(name);
++    if (!MSVCRT__environ[idx]) return NULL;
++    return strchr(MSVCRT__environ[idx], '=') + 1;
+ }
+ 
+ /*********************************************************************
+-- 
+GitLab
+
+
+From 5a5759ee7d55222388a8618a8fc3f9a4ae0fd4ec Mon Sep 17 00:00:00 2001
+From: Piotr Caban <piotr@codeweavers.com>
+Date: Tue, 21 Nov 2023 10:23:54 +0100
+Subject: [PATCH 4/7] msvcrt: Factor out wenv_get_index helper.
+
+---
+ dlls/msvcrt/environ.c | 31 +++++++++++++++++--------------
+ 1 file changed, 17 insertions(+), 14 deletions(-)
+
+diff --git a/dlls/msvcrt/environ.c b/dlls/msvcrt/environ.c
+index f0c3705a030..96793a8261b 100644
+--- a/dlls/msvcrt/environ.c
++++ b/dlls/msvcrt/environ.c
+@@ -38,6 +38,19 @@ static int env_get_index(const char *name)
+     return i;
+ }
+ 
++static int wenv_get_index(const wchar_t *name)
++{
++    int i, len;
++
++    len = wcslen(name);
++    for (i = 0; MSVCRT__wenviron[i]; i++)
++    {
++        if (!wcsncmp(name, MSVCRT__wenviron[i], len) && MSVCRT__wenviron[i][len] == '=')
++            return i;
++    }
++    return i;
++}
++
+ static char * getenv_helper(const char *name)
+ {
+     int idx;
+@@ -61,27 +74,17 @@ char * CDECL getenv(const char *name)
+ 
+ static wchar_t * wgetenv_helper(const wchar_t *name)
+ {
+-    wchar_t **env;
+-    size_t len;
++    int idx;
+ 
+     if (!name) return NULL;
+-    len = wcslen(name);
+ 
+     /* Initialize the _wenviron array if it's not already created. */
+     if (!MSVCRT__wenviron)
+         MSVCRT__wenviron = msvcrt_SnapshotOfEnvironmentW(NULL);
+ 
+-    for (env = MSVCRT__wenviron; *env; env++)
+-    {
+-        wchar_t *str = *env;
+-        wchar_t *pos = wcschr(str,'=');
+-        if (pos && ((pos - str) == len) && !_wcsnicmp(str, name, len))
+-        {
+-            TRACE("(%s): got %s\n", debugstr_w(name), debugstr_w(pos + 1));
+-            return pos + 1;
+-        }
+-    }
+-    return NULL;
++    idx = wenv_get_index(name);
++    if (!MSVCRT__wenviron[idx]) return NULL;
++    return wcschr(MSVCRT__wenviron[idx], '=') + 1;
+ }
+ 
+ /*********************************************************************
+-- 
+GitLab
+
+
+From 2ff1e7445ad2914aa7f9b954a2a5dbec52fae52d Mon Sep 17 00:00:00 2001
+From: Eric Pouech <epouech@codeweavers.com>
+Date: Tue, 21 Nov 2023 10:23:54 +0100
+Subject: [PATCH 5/7] msvcrt: Lazily initialize ___winitenv.
+
+---
+ dlls/msvcrt/data.c            |  80 +-------------------------
+ dlls/msvcrt/environ.c         | 105 +++++++++++++++++++++++++++++-----
+ dlls/msvcrt/msvcrt.h          |   5 +-
+ dlls/msvcrt/tests/environ.c   |   3 -
+ dlls/ucrtbase/tests/environ.c |   3 +-
+ 5 files changed, 97 insertions(+), 99 deletions(-)
+
+diff --git a/dlls/msvcrt/data.c b/dlls/msvcrt/data.c
+index 8a8552a151e..bec1e61e411 100644
+--- a/dlls/msvcrt/data.c
++++ b/dlls/msvcrt/data.c
+@@ -60,77 +60,6 @@ int MSVCRT_app_type = 0;
+ char* MSVCRT__pgmptr = NULL;
+ WCHAR* MSVCRT__wpgmptr = NULL;
+ 
+-/* Get a snapshot of the current environment
+- * and construct the __p__environ array
+- *
+- * The pointer returned from GetEnvironmentStrings may get invalid when
+- * some other module cause a reallocation of the env-variable block
+- *
+- * blk is an array of pointers to environment strings, ending with a NULL
+- * and after that the actual copy of the environment strings, ending in a \0
+- */
+-char ** msvcrt_SnapshotOfEnvironmentA(char **blk)
+-{
+-  char* environ_strings = GetEnvironmentStringsA();
+-  int count = 1, len = 1, i = 0; /* keep space for the trailing NULLS */
+-  char *ptr;
+-
+-  for (ptr = environ_strings; *ptr; ptr += strlen(ptr) + 1)
+-  {
+-    /* Don't count environment variables starting with '=' which are command shell specific */
+-    if (*ptr != '=') count++;
+-    len += strlen(ptr) + 1;
+-  }
+-  blk = realloc(blk, count * sizeof(char*) + len);
+-
+-  if (blk)
+-    {
+-      if (count)
+-	{
+-	  memcpy(&blk[count],environ_strings,len);
+-	  for (ptr = (char*) &blk[count]; *ptr; ptr += strlen(ptr) + 1)
+-	    {
+-	      /* Skip special environment strings set by the command shell */
+-	      if (*ptr != '=') blk[i++] = ptr;
+-	    }
+-	}
+-      blk[i] = NULL;
+-    }
+-  FreeEnvironmentStringsA(environ_strings);
+-  return blk;
+-}
+-
+-wchar_t ** msvcrt_SnapshotOfEnvironmentW(wchar_t **wblk)
+-{
+-  wchar_t* wenviron_strings = GetEnvironmentStringsW();
+-  int count = 1, len = 1, i = 0; /* keep space for the trailing NULLS */
+-  wchar_t *wptr;
+-
+-  for (wptr = wenviron_strings; *wptr; wptr += wcslen(wptr) + 1)
+-  {
+-    /* Don't count environment variables starting with '=' which are command shell specific */
+-    if (*wptr != '=') count++;
+-    len += wcslen(wptr) + 1;
+-  }
+-  wblk = realloc(wblk, count * sizeof(wchar_t*) + len * sizeof(wchar_t));
+-
+-  if (wblk)
+-    {
+-      if (count)
+-	{
+-	  memcpy(&wblk[count],wenviron_strings,len * sizeof(wchar_t));
+-	  for (wptr = (wchar_t*)&wblk[count]; *wptr; wptr += wcslen(wptr) + 1)
+-	    {
+-	      /* Skip special environment strings set by the command shell */
+-	      if (*wptr != '=') wblk[i++] = wptr;
+-	    }
+-	}
+-      wblk[i] = NULL;
+-    }
+-  FreeEnvironmentStringsW(wenviron_strings);
+-  return wblk;
+-}
+-
+ static char **build_argv( WCHAR **wargv )
+ {
+     int argc;
+@@ -433,9 +362,7 @@ void msvcrt_init_args(void)
+   MSVCRT___unguarded_readlc_active = 0;
+   MSVCRT__fmode = _O_TEXT;
+ 
+-  MSVCRT__environ = msvcrt_SnapshotOfEnvironmentA(NULL);
+-  MSVCRT___initenv = msvcrt_SnapshotOfEnvironmentA(NULL);
+-  MSVCRT___winitenv = msvcrt_SnapshotOfEnvironmentW(NULL);
++  env_init(FALSE, FALSE);
+ 
+   MSVCRT__pgmptr = HeapAlloc(GetProcessHeap(), 0, MAX_PATH);
+   if (MSVCRT__pgmptr)
+@@ -554,9 +481,8 @@ int CDECL __wgetmainargs(int *argc, wchar_t** *wargv, wchar_t** *wenvp,
+         MSVCRT___wargv = initial_wargv;
+     }
+ 
+-    /* Initialize the _wenviron array if it's not already created. */
+-    if (!MSVCRT__wenviron)
+-        MSVCRT__wenviron = msvcrt_SnapshotOfEnvironmentW(NULL);
++    env_init(TRUE, FALSE);
++
+     *argc = MSVCRT___argc;
+     *wargv = MSVCRT___wargv;
+     *wenvp = MSVCRT__wenviron;
+diff --git a/dlls/msvcrt/environ.c b/dlls/msvcrt/environ.c
+index 96793a8261b..431b4efa2eb 100644
+--- a/dlls/msvcrt/environ.c
++++ b/dlls/msvcrt/environ.c
+@@ -25,6 +25,83 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
+ 
++int env_init(BOOL unicode, BOOL modif)
++{
++    if (!unicode && (!MSVCRT___initenv || modif))
++    {
++        char *environ_strings = GetEnvironmentStringsA();
++        int count = 1, len = 1, i = 0; /* keep space for the trailing NULLS */
++        char **blk, *ptr;
++
++        for (ptr = environ_strings; *ptr; ptr += strlen(ptr) + 1)
++        {
++            /* Don't count environment variables starting with '=' which are command shell specific */
++            if (*ptr != '=') count++;
++            len += strlen(ptr) + 1;
++        }
++        if (MSVCRT___initenv != MSVCRT__environ)
++            blk = realloc(MSVCRT__environ, count * sizeof(*MSVCRT__environ) + len);
++        else
++            blk = malloc(count * sizeof(*MSVCRT__environ) + len);
++        if (!blk)
++        {
++            FreeEnvironmentStringsA(environ_strings);
++            return -1;
++        }
++        MSVCRT__environ = blk;
++
++        memcpy(&MSVCRT__environ[count], environ_strings, len);
++        for (ptr = (char *)&MSVCRT__environ[count]; *ptr; ptr += strlen(ptr) + 1)
++        {
++            /* Skip special environment strings set by the command shell */
++            if (*ptr != '=') MSVCRT__environ[i++] = ptr;
++        }
++        MSVCRT__environ[i] = NULL;
++        FreeEnvironmentStringsA(environ_strings);
++
++        if (!MSVCRT___initenv)
++            MSVCRT___initenv = MSVCRT__environ;
++    }
++
++    if (unicode && (!MSVCRT___winitenv || modif))
++    {
++        wchar_t *wenviron_strings = GetEnvironmentStringsW();
++        int count = 1, len = 1, i = 0; /* keep space for the trailing NULLS */
++        wchar_t **wblk, *wptr;
++
++        for (wptr = wenviron_strings; *wptr; wptr += wcslen(wptr) + 1)
++        {
++            /* Don't count environment variables starting with '=' which are command shell specific */
++            if (*wptr != '=') count++;
++            len += wcslen(wptr) + 1;
++        }
++        if (MSVCRT___winitenv != MSVCRT__wenviron)
++            wblk = realloc(MSVCRT__wenviron, count * sizeof(*MSVCRT__wenviron) + len * sizeof(wchar_t));
++        else
++            wblk = malloc(count * sizeof(*MSVCRT__wenviron) + len * sizeof(wchar_t));
++        if (!wblk)
++        {
++            FreeEnvironmentStringsW(wenviron_strings);
++            return -1;
++        }
++        MSVCRT__wenviron = wblk;
++
++        memcpy(&MSVCRT__wenviron[count], wenviron_strings, len * sizeof(wchar_t));
++        for (wptr = (wchar_t *)&MSVCRT__wenviron[count]; *wptr; wptr += wcslen(wptr) + 1)
++        {
++            /* Skip special environment strings set by the command shell */
++            if (*wptr != '=') MSVCRT__wenviron[i++] = wptr;
++        }
++        MSVCRT__wenviron[i] = NULL;
++        FreeEnvironmentStringsW(wenviron_strings);
++
++        if (!MSVCRT___winitenv)
++            MSVCRT___winitenv = MSVCRT__wenviron;
++    }
++
++    return 0;
++}
++
+ static int env_get_index(const char *name)
+ {
+     int i, len;
+@@ -77,10 +154,7 @@ static wchar_t * wgetenv_helper(const wchar_t *name)
+     int idx;
+ 
+     if (!name) return NULL;
+-
+-    /* Initialize the _wenviron array if it's not already created. */
+-    if (!MSVCRT__wenviron)
+-        MSVCRT__wenviron = msvcrt_SnapshotOfEnvironmentW(NULL);
++    if (env_init(TRUE, FALSE)) return NULL;
+ 
+     idx = wenv_get_index(name);
+     if (!MSVCRT__wenviron[idx]) return NULL;
+@@ -133,10 +207,9 @@ int CDECL _putenv(const char *str)
+  /* _putenv returns success on deletion of nonexistent variable, unlike [Rtl]SetEnvironmentVariable */
+  if ((ret == -1) && (GetLastError() == ERROR_ENVVAR_NOT_FOUND)) ret = 0;
+ 
+- MSVCRT__environ = msvcrt_SnapshotOfEnvironmentA(MSVCRT__environ);
++ if (ret != -1) ret = env_init(FALSE, TRUE);
+  /* Update the __p__wenviron array only when already initialized */
+- if (MSVCRT__wenviron)
+-   MSVCRT__wenviron = msvcrt_SnapshotOfEnvironmentW(MSVCRT__wenviron);
++ if (ret != -1 && MSVCRT__wenviron) ret = env_init(TRUE, TRUE);
+    
+ finish:
+  HeapFree(GetProcessHeap(), 0, name);
+@@ -154,6 +227,8 @@ int CDECL _wputenv(const wchar_t *str)
+ 
+  TRACE("%s\n", debugstr_w(str));
+ 
++ if (env_init(TRUE, FALSE)) return -1;
++
+  if (!str)
+    return -1;
+  name = HeapAlloc(GetProcessHeap(), 0, (wcslen(str) + 1) * sizeof(wchar_t));
+@@ -178,8 +253,8 @@ int CDECL _wputenv(const wchar_t *str)
+  /* _putenv returns success on deletion of nonexistent variable, unlike [Rtl]SetEnvironmentVariable */
+  if ((ret == -1) && (GetLastError() == ERROR_ENVVAR_NOT_FOUND)) ret = 0;
+ 
+- MSVCRT__environ = msvcrt_SnapshotOfEnvironmentA(MSVCRT__environ);
+- MSVCRT__wenviron = msvcrt_SnapshotOfEnvironmentW(MSVCRT__wenviron);
++ if (ret != -1) ret = env_init(FALSE, TRUE);
++ if (ret != -1) ret = env_init(TRUE, TRUE);
+ 
+ finish:
+  HeapFree(GetProcessHeap(), 0, name);
+@@ -208,9 +283,8 @@ errno_t CDECL _putenv_s(const char *name, const char *value)
+         }
+     }
+ 
+-    MSVCRT__environ = msvcrt_SnapshotOfEnvironmentA(MSVCRT__environ);
+-    MSVCRT__wenviron = msvcrt_SnapshotOfEnvironmentW(MSVCRT__wenviron);
+-
++    env_init(FALSE, TRUE);
++    env_init(TRUE, TRUE);
+     return ret;
+ }
+ 
+@@ -223,6 +297,8 @@ errno_t CDECL _wputenv_s(const wchar_t *name, const wchar_t *value)
+ 
+     TRACE("%s %s\n", debugstr_w(name), debugstr_w(value));
+ 
++    env_init(TRUE, FALSE);
++
+     if (!MSVCRT_CHECK_PMT(name != NULL)) return EINVAL;
+     if (!MSVCRT_CHECK_PMT(value != NULL)) return EINVAL;
+ 
+@@ -236,9 +312,8 @@ errno_t CDECL _wputenv_s(const wchar_t *name, const wchar_t *value)
+         }
+     }
+ 
+-    MSVCRT__environ = msvcrt_SnapshotOfEnvironmentA(MSVCRT__environ);
+-    MSVCRT__wenviron = msvcrt_SnapshotOfEnvironmentW(MSVCRT__wenviron);
+-
++    env_init(FALSE, TRUE);
++    env_init(TRUE, TRUE);
+     return ret;
+ }
+ 
+diff --git a/dlls/msvcrt/msvcrt.h b/dlls/msvcrt/msvcrt.h
+index 7c2dd4835f5..fe626e2e79f 100644
+--- a/dlls/msvcrt/msvcrt.h
++++ b/dlls/msvcrt/msvcrt.h
+@@ -205,9 +205,10 @@ void __cdecl _amsg_exit(int errnum);
+ 
+ extern char **MSVCRT__environ;
+ extern wchar_t **MSVCRT__wenviron;
++extern char **MSVCRT___initenv;
++extern wchar_t **MSVCRT___winitenv;
+ 
+-extern char ** msvcrt_SnapshotOfEnvironmentA(char **);
+-extern wchar_t ** msvcrt_SnapshotOfEnvironmentW(wchar_t **);
++int env_init(BOOL, BOOL);
+ 
+ wchar_t *msvcrt_wstrdupa(const char *);
+ 
+diff --git a/dlls/msvcrt/tests/environ.c b/dlls/msvcrt/tests/environ.c
+index 17d75733c85..84d610e6c76 100644
+--- a/dlls/msvcrt/tests/environ.c
++++ b/dlls/msvcrt/tests/environ.c
+@@ -139,7 +139,6 @@ static void test__environ(void)
+     {
+         initenv = *p__p___initenv();
+ 
+-        todo_wine
+         ok( initenv == *p_environ,
+             "Expected _environ to be equal to initial env\n" );
+     }
+@@ -195,7 +194,6 @@ static void test__wenviron(void)
+     if (p__p___winitenv)
+     {
+         wchar_t ***retptr = p__p___winitenv();
+-        todo_wine
+         ok( !*retptr, "Expected initial env to be NULL\n" );
+     }
+     else
+@@ -235,7 +233,6 @@ static void test__wenviron(void)
+             "Expected _wenviron to be different from __p___winitenv() %p %p\n", *retptr, *p_wenviron );
+         /* test that w-initial env is derived from current _environ[] and not from ansi initial env */
+         value = env_get_valueW( *retptr, L"cat" );
+-        todo_wine
+         ok( value && !wcscmp( value, L"dog" ),
+                 "Expecting initial env to be derived from current env (got %ls)\n", value );
+     }
+diff --git a/dlls/ucrtbase/tests/environ.c b/dlls/ucrtbase/tests/environ.c
+index 4d2dbadd33d..5cc019af673 100644
+--- a/dlls/ucrtbase/tests/environ.c
++++ b/dlls/ucrtbase/tests/environ.c
+@@ -132,13 +132,12 @@ static void test_initial_environ( void )
+     ok( p__p__environ() != NULL, "Unexpected NULL _environ[]\n" );
+     ok( *p__p__environ() != NULL, "Unexpected empty _environ[]\n" );
+     ok( p_get_initial_narrow_environment() != NULL, "Unexpected empty narrow initial environment\n" );
+-    todo_wine
+     ok( p_get_initial_narrow_environment() == *p__p__environ(), "Expecting _environ[] to match initial narrow environment\n" );
+ 
+     ok( p__p__wenviron() != NULL, "Unexpected NULL _wenviron[]\n" );
+     ok( *p__p__wenviron() == NULL, "Unexpected non empty _wenviron[]\n" );
+-    ok( p_get_initial_wide_environment() != NULL, "Unexpected empty wide initial environment\n" );
+     todo_wine
++    ok( p_get_initial_wide_environment() != NULL, "Unexpected empty wide initial environment\n" );
+     ok( p_get_initial_wide_environment() == *p__p__wenviron(), "Expecting _wenviron[] to match initial wide environment\n" );
+ }
+ 
+-- 
+GitLab
+
+
+From d018f06e0101484203ca61ac29cc62194441a2aa Mon Sep 17 00:00:00 2001
+From: Eric Pouech <epouech@codeweavers.com>
+Date: Tue, 21 Nov 2023 10:23:54 +0100
+Subject: [PATCH 6/7] msvcrt: Allocate environment variables in separate
+ allocation chunks.
+
+---
+ dlls/msvcrt/environ.c         | 338 +++++++++++++++++++++-------------
+ dlls/msvcrt/tests/environ.c   |   4 -
+ dlls/ucrtbase/tests/environ.c |   4 -
+ 3 files changed, 214 insertions(+), 132 deletions(-)
+
+diff --git a/dlls/msvcrt/environ.c b/dlls/msvcrt/environ.c
+index 431b4efa2eb..3c90ec4bf21 100644
+--- a/dlls/msvcrt/environ.c
++++ b/dlls/msvcrt/environ.c
+@@ -21,17 +21,18 @@
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+  */
+ #include "msvcrt.h"
++#include <winnls.h>
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
+ 
+ int env_init(BOOL unicode, BOOL modif)
+ {
+-    if (!unicode && (!MSVCRT___initenv || modif))
++    if (!unicode && !MSVCRT___initenv)
+     {
+         char *environ_strings = GetEnvironmentStringsA();
+         int count = 1, len = 1, i = 0; /* keep space for the trailing NULLS */
+-        char **blk, *ptr;
++        char *ptr;
+ 
+         for (ptr = environ_strings; *ptr; ptr += strlen(ptr) + 1)
+         {
+@@ -39,35 +40,42 @@ int env_init(BOOL unicode, BOOL modif)
+             if (*ptr != '=') count++;
+             len += strlen(ptr) + 1;
+         }
+-        if (MSVCRT___initenv != MSVCRT__environ)
+-            blk = realloc(MSVCRT__environ, count * sizeof(*MSVCRT__environ) + len);
+-        else
+-            blk = malloc(count * sizeof(*MSVCRT__environ) + len);
+-        if (!blk)
++        MSVCRT___initenv = malloc(count * sizeof(*MSVCRT___initenv) + len);
++        if (!MSVCRT___initenv)
+         {
+             FreeEnvironmentStringsA(environ_strings);
+             return -1;
+         }
+-        MSVCRT__environ = blk;
+ 
+-        memcpy(&MSVCRT__environ[count], environ_strings, len);
+-        for (ptr = (char *)&MSVCRT__environ[count]; *ptr; ptr += strlen(ptr) + 1)
++        memcpy(&MSVCRT___initenv[count], environ_strings, len);
++        for (ptr = (char *)&MSVCRT___initenv[count]; *ptr; ptr += strlen(ptr) + 1)
+         {
+             /* Skip special environment strings set by the command shell */
+-            if (*ptr != '=') MSVCRT__environ[i++] = ptr;
++            if (*ptr != '=') MSVCRT___initenv[i++] = ptr;
+         }
+-        MSVCRT__environ[i] = NULL;
++        MSVCRT___initenv[i] = NULL;
+         FreeEnvironmentStringsA(environ_strings);
+ 
+-        if (!MSVCRT___initenv)
+-            MSVCRT___initenv = MSVCRT__environ;
++        MSVCRT__environ = MSVCRT___initenv;
++    }
++
++    if (!unicode && modif && MSVCRT__environ == MSVCRT___initenv)
++    {
++        int i = 0;
++
++        while(MSVCRT___initenv[i]) i++;
++        MSVCRT__environ = malloc((i + 1) * sizeof(char *));
++        if (!MSVCRT__environ) return -1;
++        for (i = 0; MSVCRT___initenv[i]; i++)
++            MSVCRT__environ[i] = strdup(MSVCRT___initenv[i]);
++        MSVCRT__environ[i] = NULL;
+     }
+ 
+-    if (unicode && (!MSVCRT___winitenv || modif))
++    if (unicode && !MSVCRT___winitenv)
+     {
+         wchar_t *wenviron_strings = GetEnvironmentStringsW();
+         int count = 1, len = 1, i = 0; /* keep space for the trailing NULLS */
+-        wchar_t **wblk, *wptr;
++        wchar_t *wptr;
+ 
+         for (wptr = wenviron_strings; *wptr; wptr += wcslen(wptr) + 1)
+         {
+@@ -75,28 +83,35 @@ int env_init(BOOL unicode, BOOL modif)
+             if (*wptr != '=') count++;
+             len += wcslen(wptr) + 1;
+         }
+-        if (MSVCRT___winitenv != MSVCRT__wenviron)
+-            wblk = realloc(MSVCRT__wenviron, count * sizeof(*MSVCRT__wenviron) + len * sizeof(wchar_t));
+-        else
+-            wblk = malloc(count * sizeof(*MSVCRT__wenviron) + len * sizeof(wchar_t));
+-        if (!wblk)
++        MSVCRT___winitenv = malloc(count * sizeof(*MSVCRT___winitenv) + len * sizeof(wchar_t));
++        if (!MSVCRT___winitenv)
+         {
+             FreeEnvironmentStringsW(wenviron_strings);
+             return -1;
+         }
+-        MSVCRT__wenviron = wblk;
+ 
+-        memcpy(&MSVCRT__wenviron[count], wenviron_strings, len * sizeof(wchar_t));
+-        for (wptr = (wchar_t *)&MSVCRT__wenviron[count]; *wptr; wptr += wcslen(wptr) + 1)
++        memcpy(&MSVCRT___winitenv[count], wenviron_strings, len * sizeof(wchar_t));
++        for (wptr = (wchar_t *)&MSVCRT___winitenv[count]; *wptr; wptr += wcslen(wptr) + 1)
+         {
+             /* Skip special environment strings set by the command shell */
+-            if (*wptr != '=') MSVCRT__wenviron[i++] = wptr;
++            if (*wptr != '=') MSVCRT___winitenv[i++] = wptr;
+         }
+-        MSVCRT__wenviron[i] = NULL;
++        MSVCRT___winitenv[i] = NULL;
+         FreeEnvironmentStringsW(wenviron_strings);
+ 
+-        if (!MSVCRT___winitenv)
+-            MSVCRT___winitenv = MSVCRT__wenviron;
++        MSVCRT__wenviron = MSVCRT___winitenv;
++    }
++
++    if (unicode && modif && MSVCRT__wenviron == MSVCRT___winitenv)
++    {
++        int i = 0;
++
++        while(MSVCRT___winitenv[i]) i++;
++        MSVCRT__wenviron = malloc((i + 1) * sizeof(wchar_t *));
++        if (!MSVCRT__wenviron) return -1;
++        for (i = 0; MSVCRT___winitenv[i]; i++)
++            MSVCRT__wenviron[i] = wcsdup(MSVCRT___winitenv[i]);
++        MSVCRT__wenviron[i] = NULL;
+     }
+ 
+     return 0;
+@@ -128,6 +143,67 @@ static int wenv_get_index(const wchar_t *name)
+     return i;
+ }
+ 
++static int env_set(char **env, wchar_t **wenv)
++{
++    wchar_t *weq = wcschr(*wenv, '=');
++    char *eq = strchr(*env, '=');
++    int idx;
++
++    *weq = 0;
++    if (!SetEnvironmentVariableW(*wenv, weq[1] ? weq + 1 : NULL) &&
++            GetLastError() != ERROR_ENVVAR_NOT_FOUND)
++        return -1;
++
++    *eq = 0;
++    idx = env_get_index(*env);
++    *eq = '=';
++    if (!eq[1])
++    {
++        for(; MSVCRT__environ[idx]; idx++)
++            MSVCRT__environ[idx] = MSVCRT__environ[idx + 1];
++    }
++    else if (MSVCRT__environ[idx])
++    {
++        free(MSVCRT__environ[idx]);
++        MSVCRT__environ[idx] = *env;
++        *env = NULL;
++    }
++    else
++    {
++        char **new_env = realloc(MSVCRT__environ, (idx + 2) * sizeof(*MSVCRT__environ));
++        if (!new_env) return -1;
++        MSVCRT__environ = new_env;
++        MSVCRT__environ[idx] = *env;
++        MSVCRT__environ[idx + 1] = NULL;
++        *env = NULL;
++    }
++
++    if (!MSVCRT__wenviron) return 0;
++    idx = wenv_get_index(*wenv);
++    *weq = '=';
++    if (!weq[1])
++    {
++        for(; MSVCRT__wenviron[idx]; idx++)
++            MSVCRT__wenviron[idx] = MSVCRT__wenviron[idx + 1];
++    }
++    else if (MSVCRT__wenviron[idx])
++    {
++        free(MSVCRT__wenviron[idx]);
++        MSVCRT__wenviron[idx] = *wenv;
++        *wenv = NULL;
++    }
++    else
++    {
++        wchar_t **new_env = realloc(MSVCRT__wenviron, (idx + 2) * sizeof(*MSVCRT__wenviron));
++        if (!new_env) return -1;
++        MSVCRT__wenviron = new_env;
++        MSVCRT__wenviron[idx] = *wenv;
++        MSVCRT__wenviron[idx + 1] = NULL;
++        *wenv = NULL;
++    }
++    return 0;
++}
++
+ static char * getenv_helper(const char *name)
+ {
+     int idx;
+@@ -171,49 +247,107 @@ wchar_t * CDECL _wgetenv(const wchar_t *name)
+     return wgetenv_helper(name);
+ }
+ 
++static int putenv_helper(const char *name, const char *val, const char *eq)
++{
++    wchar_t *wenv;
++    char *env;
++    int r;
++
++    if (env_init(FALSE, TRUE)) return -1;
++
++    if (eq)
++    {
++        env = strdup(name);
++        if (!env) return -1;
++    }
++    else
++    {
++        int name_len = strlen(name);
++
++        r = strlen(val);
++        env = malloc(name_len + r + 2);
++        if (!env) return -1;
++        memcpy(env, name, name_len);
++        env[name_len] = '=';
++        strcpy(env + name_len + 1, val);
++    }
++
++    wenv = msvcrt_wstrdupa(env);
++    if (!wenv)
++    {
++        free(env);
++        return -1;
++    }
++
++    r = env_set(&env, &wenv);
++    free(env);
++    free(wenv);
++    return r;
++}
++
++static char *msvcrt_astrdupw(const wchar_t *wstr)
++{
++    const unsigned int len = WideCharToMultiByte(CP_ACP, 0, wstr, -1, NULL, 0, NULL, NULL);
++    char *str = malloc(len * sizeof(char));
++
++    if (!str)
++        return NULL;
++    WideCharToMultiByte(CP_ACP, 0, wstr, -1, str, len, NULL, NULL);
++    return str;
++}
++
++
++static int wputenv_helper(const wchar_t *name, const wchar_t *val, const wchar_t *eq)
++{
++    wchar_t *wenv;
++    char *env;
++    int r;
++
++    if (env_init(TRUE, TRUE)) return -1;
++
++    if (eq)
++    {
++        wenv = wcsdup(name);
++        if (!wenv) return -1;
++    }
++    else
++    {
++        int name_len = wcslen(name);
++
++        r = wcslen(val);
++        wenv = malloc((name_len + r + 2) * sizeof(wchar_t));
++        if (!wenv) return -1;
++        memcpy(wenv, name, name_len * sizeof(wchar_t));
++        wenv[name_len] = '=';
++        wcscpy(wenv + name_len + 1, val);
++    }
++
++    env = msvcrt_astrdupw(wenv);
++    if (!env)
++    {
++        free(wenv);
++        return -1;
++    }
++
++    r = env_set(&env, &wenv);
++    free(env);
++    free(wenv);
++    return r;
++}
++
+ /*********************************************************************
+  *		_putenv (MSVCRT.@)
+  */
+ int CDECL _putenv(const char *str)
+ {
+- char *name, *value;
+- char *dst;
+- int ret;
+-
+- TRACE("%s\n", debugstr_a(str));
+-
+- if (!str)
+-   return -1;
+-   
+- name = HeapAlloc(GetProcessHeap(), 0, strlen(str) + 1);
+- if (!name)
+-   return -1;
+- dst = name;
+- while (*str && *str != '=')
+-  *dst++ = *str++;
+- if (!*str++)
+- {
+-   ret = -1;
+-   goto finish;
+- }
+- *dst++ = '\0';
+- value = dst;
+- while (*str)
+-  *dst++ = *str++;
+- *dst = '\0';
+-
+- ret = SetEnvironmentVariableA(name, value[0] ? value : NULL) ? 0 : -1;
+-
+- /* _putenv returns success on deletion of nonexistent variable, unlike [Rtl]SetEnvironmentVariable */
+- if ((ret == -1) && (GetLastError() == ERROR_ENVVAR_NOT_FOUND)) ret = 0;
+-
+- if (ret != -1) ret = env_init(FALSE, TRUE);
+- /* Update the __p__wenviron array only when already initialized */
+- if (ret != -1 && MSVCRT__wenviron) ret = env_init(TRUE, TRUE);
+-   
+-finish:
+- HeapFree(GetProcessHeap(), 0, name);
+- return ret;
++    const char *eq;
++
++    TRACE("%s\n", debugstr_a(str));
++
++    if (!str || !(eq = strchr(str, '=')))
++        return -1;
++
++    return putenv_helper(str, NULL, eq);
+ }
+ 
+ /*********************************************************************
+@@ -221,44 +355,14 @@ finish:
+  */
+ int CDECL _wputenv(const wchar_t *str)
+ {
+- wchar_t *name, *value;
+- wchar_t *dst;
+- int ret;
+-
+- TRACE("%s\n", debugstr_w(str));
+-
+- if (env_init(TRUE, FALSE)) return -1;
+-
+- if (!str)
+-   return -1;
+- name = HeapAlloc(GetProcessHeap(), 0, (wcslen(str) + 1) * sizeof(wchar_t));
+- if (!name)
+-   return -1;
+- dst = name;
+- while (*str && *str != '=')
+-  *dst++ = *str++;
+- if (!*str++)
+- {
+-   ret = -1;
+-   goto finish;
+- }
+- *dst++ = 0;
+- value = dst;
+- while (*str)
+-  *dst++ = *str++;
+- *dst = 0;
+-
+- ret = SetEnvironmentVariableW(name, value[0] ? value : NULL) ? 0 : -1;
+-
+- /* _putenv returns success on deletion of nonexistent variable, unlike [Rtl]SetEnvironmentVariable */
+- if ((ret == -1) && (GetLastError() == ERROR_ENVVAR_NOT_FOUND)) ret = 0;
+-
+- if (ret != -1) ret = env_init(FALSE, TRUE);
+- if (ret != -1) ret = env_init(TRUE, TRUE);
+-
+-finish:
+- HeapFree(GetProcessHeap(), 0, name);
+- return ret;
++    const wchar_t *eq;
++
++    TRACE("%s\n", debugstr_w(str));
++
++    if (!str || !(eq = wcschr(str, '=')))
++        return -1;
++
++    return wputenv_helper(str, NULL, eq);
+ }
+ 
+ /*********************************************************************
+@@ -273,18 +377,12 @@ errno_t CDECL _putenv_s(const char *name, const char *value)
+     if (!MSVCRT_CHECK_PMT(name != NULL)) return EINVAL;
+     if (!MSVCRT_CHECK_PMT(value != NULL)) return EINVAL;
+ 
+-    if (!SetEnvironmentVariableA(name, value[0] ? value : NULL))
++    if (putenv_helper(name, value, NULL) < 0)
+     {
+-        /* _putenv returns success on deletion of nonexistent variable */
+-        if (GetLastError() != ERROR_ENVVAR_NOT_FOUND)
+-        {
+-            msvcrt_set_errno(GetLastError());
+-            ret = *_errno();
+-        }
++        msvcrt_set_errno(GetLastError());
++        ret = *_errno();
+     }
+ 
+-    env_init(FALSE, TRUE);
+-    env_init(TRUE, TRUE);
+     return ret;
+ }
+ 
+@@ -297,23 +395,15 @@ errno_t CDECL _wputenv_s(const wchar_t *name, const wchar_t *value)
+ 
+     TRACE("%s %s\n", debugstr_w(name), debugstr_w(value));
+ 
+-    env_init(TRUE, FALSE);
+-
+     if (!MSVCRT_CHECK_PMT(name != NULL)) return EINVAL;
+     if (!MSVCRT_CHECK_PMT(value != NULL)) return EINVAL;
+ 
+-    if (!SetEnvironmentVariableW(name, value[0] ? value : NULL))
++    if (wputenv_helper(name, value, NULL) < 0)
+     {
+-        /* _putenv returns success on deletion of nonexistent variable */
+-        if (GetLastError() != ERROR_ENVVAR_NOT_FOUND)
+-        {
+-            msvcrt_set_errno(GetLastError());
+-            ret = *_errno();
+-        }
++        msvcrt_set_errno(GetLastError());
++        ret = *_errno();
+     }
+ 
+-    env_init(FALSE, TRUE);
+-    env_init(TRUE, TRUE);
+     return ret;
+ }
+ 
+diff --git a/dlls/msvcrt/tests/environ.c b/dlls/msvcrt/tests/environ.c
+index 84d610e6c76..aab14a422b3 100644
+--- a/dlls/msvcrt/tests/environ.c
++++ b/dlls/msvcrt/tests/environ.c
+@@ -342,7 +342,6 @@ static void test_environment_manipulation(void)
+     ok( _putenv( "__winetest_dog=bark" ) == 0, "Couldn't set env var\n" );
+     ok( !strcmp( (*p_environ)[count + 1], "__winetest_dog=bark" ), "Unexpected env var value\n" );
+     ok( getenv( "__winetest_dog" ) == strchr( (*p_environ)[count + 1], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
+-    todo_wine
+     ok( first == (*p_environ)[count], "Expected stability of _environ[count] pointer\n" );
+     second = (*p_environ)[count + 1];
+     ok( count + 2 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
+@@ -350,13 +349,11 @@ static void test_environment_manipulation(void)
+     ok( _putenv( "__winetest_cat=purr" ) == 0, "Couldn't set env var\n" );
+     ok( !strcmp( (*p_environ)[count], "__winetest_cat=purr" ), "Unexpected env var value\n" );
+     ok( getenv( "__winetest_cat" ) == strchr( (*p_environ)[count], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
+-    todo_wine
+     ok( second == (*p_environ)[count + 1], "Expected stability of _environ[count] pointer\n" );
+     ok( !strcmp( (*p_environ)[count + 1], "__winetest_dog=bark" ), "Couldn't get env var value\n" );
+     ok( getenv( "__winetest_dog" ) == strchr( (*p_environ)[count + 1], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
+     ok( count + 2 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
+     ok( _putenv( "__winetest_cat=" ) == 0, "Couldn't reset env vat\n" );
+-    todo_wine
+     ok( second == (*p_environ)[count], "Expected _environ[count] to be second\n" );
+     ok( !strcmp( (*p_environ)[count], "__winetest_dog=bark" ), "Unexpected env var value\n" );
+     ok( count + 1 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
+@@ -367,7 +364,6 @@ static void test_environment_manipulation(void)
+     ret = SetEnvironmentVariableA( "__winetest_cat", "meow" );
+     ok( ret, "SetEnvironmentVariableA failed: %lu\n", GetLastError() );
+     ok( _putenv( "__winetest_dog=bark" ) == 0, "Couldn't set env var\n" );
+-    todo_wine
+     ok( getenv( "__winetest_cat" ) == NULL, "msvcrt env cache shouldn't have been updated\n" );
+     ok( _putenv( "__winetest_cat=" ) == 0, "Couldn't reset env var\n" );
+     ok( _putenv( "__winetest_dog=" ) == 0, "Couldn't reset env var\n" );
+diff --git a/dlls/ucrtbase/tests/environ.c b/dlls/ucrtbase/tests/environ.c
+index 5cc019af673..dc31c640239 100644
+--- a/dlls/ucrtbase/tests/environ.c
++++ b/dlls/ucrtbase/tests/environ.c
+@@ -240,7 +240,6 @@ static void test_environment_manipulation(void)
+     ok( _putenv( "__winetest_dog=bark" ) == 0, "Couldn't set env var\n" );
+     ok( !strcmp( (*p_environ)[count + 1], "__winetest_dog=bark" ), "Unexpected env var value\n" );
+     ok( getenv( "__winetest_dog" ) == strchr( (*p_environ)[count + 1], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
+-    todo_wine
+     ok( first == (*p_environ)[count], "Expected stability of _environ[count] pointer\n" );
+     second = (*p_environ)[count + 1];
+     ok( count + 2 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
+@@ -248,13 +247,11 @@ static void test_environment_manipulation(void)
+     ok( _putenv( "__winetest_cat=purr" ) == 0, "Couldn't set env var\n" );
+     ok( !strcmp( (*p_environ)[count], "__winetest_cat=purr" ), "Unexpected env var value\n" );
+     ok( getenv( "__winetest_cat" ) == strchr( (*p_environ)[count], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
+-    todo_wine
+     ok( second == (*p_environ)[count + 1], "Expected stability of _environ[count] pointer\n" );
+     ok( !strcmp( (*p_environ)[count + 1], "__winetest_dog=bark" ), "Couldn't get env var value\n" );
+     ok( getenv( "__winetest_dog" ) == strchr( (*p_environ)[count + 1], '=' ) + 1, "Expected getenv() to return pointer inside _environ[] entry\n" );
+     ok( count + 2 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
+     ok( _putenv( "__winetest_cat=" ) == 0, "Couldn't reset env vat\n" );
+-    todo_wine
+     ok( second == (*p_environ)[count], "Expected _environ[count] to be second\n" );
+     ok( !strcmp( (*p_environ)[count], "__winetest_dog=bark" ), "Unexpected env var value\n" );
+     ok( count + 1 == env_get_entry_countA( *p_environ ), "Unexpected count\n" );
+@@ -265,7 +262,6 @@ static void test_environment_manipulation(void)
+     ret = SetEnvironmentVariableA( "__winetest_cat", "meow" );
+     ok( ret, "SetEnvironmentVariableA failed: %lu\n", GetLastError() );
+     ok( _putenv( "__winetest_dog=bark" ) == 0, "Couldn't set env var\n" );
+-    todo_wine
+     ok( getenv( "__winetest_cat" ) == NULL, "msvcrt env cache shouldn't have been updated\n" );
+     ok( _putenv( "__winetest_cat=" ) == 0, "Couldn't reset env var\n" );
+     ok( _putenv( "__winetest_dog=" ) == 0, "Couldn't reset env var\n" );
+-- 
+GitLab
+
+
+From b1eaaf9170d49f49c9210e43387ad252f63be479 Mon Sep 17 00:00:00 2001
+From: Eric Pouech <epouech@codeweavers.com>
+Date: Tue, 21 Nov 2023 10:23:54 +0100
+Subject: [PATCH 7/7] msvcrt: Fix ucrtbase environment initialization.
+
+Signed-off-by: Eric Pouech <epouech@codeweavers.com>
+---
+ dlls/msvcrt/data.c            | 34 +++++++++++++++++++---------------
+ dlls/ucrtbase/tests/environ.c |  1 -
+ 2 files changed, 19 insertions(+), 16 deletions(-)
+
+diff --git a/dlls/msvcrt/data.c b/dlls/msvcrt/data.c
+index bec1e61e411..6e764e52eae 100644
+--- a/dlls/msvcrt/data.c
++++ b/dlls/msvcrt/data.c
+@@ -592,14 +592,6 @@ void CDECL __set_app_type(int app_type)
+ 
+ #if _MSVCR_VER>=140
+ 
+-/*********************************************************************
+- *		_get_initial_narrow_environment (UCRTBASE.@)
+- */
+-char** CDECL _get_initial_narrow_environment(void)
+-{
+-  return MSVCRT___initenv;
+-}
+-
+ /*********************************************************************
+  *		_configure_narrow_argv (UCRTBASE.@)
+  */
+@@ -614,16 +606,18 @@ int CDECL _configure_narrow_argv(int mode)
+  */
+ int CDECL _initialize_narrow_environment(void)
+ {
+-  TRACE("\n");
+-  return 0;
++    TRACE("\n");
++    return env_init(FALSE, FALSE);
+ }
+ 
+ /*********************************************************************
+- *		_get_initial_wide_environment (UCRTBASE.@)
++ *		_get_initial_narrow_environment (UCRTBASE.@)
+  */
+-wchar_t** CDECL _get_initial_wide_environment(void)
++char** CDECL _get_initial_narrow_environment(void)
+ {
+-  return MSVCRT___winitenv;
++    TRACE("\n");
++    _initialize_narrow_environment();
++    return MSVCRT___initenv;
+ }
+ 
+ /*********************************************************************
+@@ -640,8 +634,18 @@ int CDECL _configure_wide_argv(int mode)
+  */
+ int CDECL _initialize_wide_environment(void)
+ {
+-  WARN("stub\n");
+-  return 0;
++    TRACE("\n");
++    return env_init(TRUE, FALSE);
++}
++
++/*********************************************************************
++ *		_get_initial_wide_environment (UCRTBASE.@)
++ */
++wchar_t** CDECL _get_initial_wide_environment(void)
++{
++    TRACE("\n");
++    _initialize_wide_environment();
++    return MSVCRT___winitenv;
+ }
+ 
+ /*********************************************************************
+diff --git a/dlls/ucrtbase/tests/environ.c b/dlls/ucrtbase/tests/environ.c
+index dc31c640239..a42f64466e9 100644
+--- a/dlls/ucrtbase/tests/environ.c
++++ b/dlls/ucrtbase/tests/environ.c
+@@ -136,7 +136,6 @@ static void test_initial_environ( void )
+ 
+     ok( p__p__wenviron() != NULL, "Unexpected NULL _wenviron[]\n" );
+     ok( *p__p__wenviron() == NULL, "Unexpected non empty _wenviron[]\n" );
+-    todo_wine
+     ok( p_get_initial_wide_environment() != NULL, "Unexpected empty wide initial environment\n" );
+     ok( p_get_initial_wide_environment() == *p__p__wenviron(), "Expecting _wenviron[] to match initial wide environment\n" );
+ }
+-- 
+GitLab
+
