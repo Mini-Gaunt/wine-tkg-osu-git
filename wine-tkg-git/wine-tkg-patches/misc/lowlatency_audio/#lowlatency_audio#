@@ -1,0 +1,21 @@
+# Extracting reverted audio subsystem components (needed for pulse latency patch)
+echo "Starting audio revert..."
+
+    if [ -f "$srcdir"/audio-revert.tar ]; then
+       echo "Found audio revert..."
+        # Remove old files first
+        rm -rf "$srcdir"/wine-git/dlls/{winepulse.drv,mmdevapi,winealsa.drv,winecoreaudio.drv,wineoss.drv}
+
+        cd "$srcdir"/wine-git/dlls/
+        tar xf "$srcdir"/audio-revert.tar
+
+        echo "Extracted audio-revert.tar"
+        cd -
+	
+        echo "Applying patches on top of audio revert..."
+	_patchname='revert-mscvrt-ify-modules.patch' && nonuser_patcher
+	_patchname='winepulse-v8.11-Latency-Fix(1).patch' && nonuser_patcher
+	
+    else
+	echo "failed"
+    fi

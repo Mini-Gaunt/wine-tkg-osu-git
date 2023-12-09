@@ -1,0 +1,35 @@
+From ae8c0f7caab4d890a2b9fa03bd2f36a8ba033a77 Mon Sep 17 00:00:00 2001
+From: Mini Gaunt <jacobh117@gmail.com>
+Date: Sun, 26 Nov 2023 16:21:40 +0000
+Subject: [PATCH] Readd NtUserSetWindowPos in X11DRV_FocusIn and set_focus
+
+---
+ dlls/winex11.drv/event.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 29717459523..a33b2659a0a 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -577,7 +577,8 @@ static void set_focus( Display *display, HWND hwnd, Time time )
+     GUITHREADINFO threadinfo;
+ 
+     TRACE( "setting foreground window to %p\n", hwnd );
+     NtUserSetForegroundWindow( hwnd );
++    if ( NET_WM_STATE_FULLSCREEN == 1 ) NtUserSetWindowPos( hwnd, 0, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS );
+ 
+     threadinfo.cbSize = sizeof(threadinfo);
+     NtUserGetGUIThreadInfo( 0, &threadinfo );
+@@ -795,8 +797,9 @@ static BOOL X11DRV_FocusIn( HWND hwnd, XEvent *xev )
+         if (!hwnd) hwnd = get_active_window();
+         if (!hwnd) hwnd = x11drv_thread_data()->last_focus;
+         if (hwnd && can_activate_window(hwnd)) set_focus( event->display, hwnd, CurrentTime );
++    if ( NET_WM_STATE_FULLSCREEN == 1 ) NtUserSetWindowPos( hwnd, 0, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS );
+     }
+     else NtUserSetForegroundWindow( hwnd );
+     return TRUE;
+ }
+ 
+-- 
+GitLab
+
