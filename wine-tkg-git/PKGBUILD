@@ -255,7 +255,6 @@ if [ "$_EXTERNAL_INSTALL" = "true" ]; then
 else
   provides=(
       "$pkgname"
-      'wine'
   )
   conflicts=('wine-osu')
   if [[ "$pkgname" == *-git ]]; then
