@@ -1,0 +1,24 @@
+--- a/dlls/wined3d/context_gl.c	2023-05-12 23:48:10.000000000 +0200
++++ a/dlls/wined3d/context_gl.c	2023-05-14 18:18:54.659100284 +0200
+@@ -1343,18 +1343,19 @@ static void wined3d_context_gl_update_wi
+     if (context_gl->dc)
+         wined3d_release_dc(context_gl->window, context_gl->dc);
+ 
+-    context_gl->window = context_gl->c.swapchain->win_handle;
+     context_gl->dc_is_private = FALSE;
+     context_gl->dc_has_format = FALSE;
+     context_gl->needs_set = 1;
+     context_gl->valid = 1;
+     context_gl->internal_format_set = 0;
+ 
+-    if (!(context_gl->dc = GetDCEx(context_gl->window, 0, DCX_USESTYLE | DCX_CACHE)))
++    if (!(context_gl->dc = GetDCEx(context_gl->c.swapchain->win_handle, 0, DCX_USESTYLE | DCX_CACHE)))
+     {
+         ERR("Failed to get a device context for window %p.\n", context_gl->window);
+         context_gl->valid = 0;
++        return;
+     }
++    context_gl->window = context_gl->c.swapchain->win_handle;
+ }
+ 
+ static void wined3d_context_gl_cleanup(struct wined3d_context_gl *context_gl)

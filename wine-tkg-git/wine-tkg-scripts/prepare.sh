@@ -1091,7 +1091,7 @@ _polish() {
 	autoreconf -fiv
 
 	# wine late user patches - Applied after make_vulkan/make_requests/autoreconf
-	source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio
+#	source "$_where"/wine-tkg-patches/misc/lowlatency_audio/lowlatency_audio
 	_userpatch_target="plain-wine"
 	_userpatch_ext="mylate"
 	cd "${srcdir}"/"${_winesrcdir}"
