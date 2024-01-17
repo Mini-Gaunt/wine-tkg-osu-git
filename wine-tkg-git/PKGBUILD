@@ -227,7 +227,7 @@ if [[ "$_LOCAL_PRESET" = valve* ]] && [ -n "$_bleeding_tag" ]; then
   _plain_commit="${_bleeding_tag}"
 fi
 
-source=(  "$_winesrcdir"::"${_winesrctarget}${_plain_commit}"
+source=( "$_winesrcdir"::"${_winesrctarget}${_plain_commit}"
 #	"$_winesrcdir"::"${_winesrctarget}"
 	"$_stgsrcdir"::"${_stgsrctarget}${_staging_commit}"
 #	"$_stgsrcdir"::"${_stgsrctarget}"
